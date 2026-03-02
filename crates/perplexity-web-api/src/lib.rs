@@ -92,6 +92,7 @@ mod types;
 mod upload;
 
 pub use client::{Client, ClientBuilder};
+pub use config::{VALID_SEARCH_MODELS, parse_search_model};
 pub use error::{Error, Result};
 pub use types::{
     FollowUpContext, Model, SearchEvent, SearchMode, SearchRequest, SearchResponse,

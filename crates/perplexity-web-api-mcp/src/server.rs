@@ -1,4 +1,6 @@
-use perplexity_web_api::{Client, SearchMode, SearchRequest, SearchWebResult, Source};
+use perplexity_web_api::{
+    Client, Model, SearchMode, SearchRequest, SearchWebResult, Source, parse_search_model,
+};
 use rmcp::{
     ErrorData as McpError, ServerHandler,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
@@ -21,6 +23,19 @@ pub struct PerplexityRequest {
     /// Language code (ISO 639), e.g., "en-US". Defaults to "en-US".
     #[serde(default)]
     pub language: Option<String>,
+}
+
+/// Request parameters for perplexity_search.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PerplexitySearchRequest {
+    #[serde(flatten)]
+    pub common: PerplexityRequest,
+
+    /// Optional model to use for search.
+    ///
+    /// If not specified, the configured default model is used when set.
+    #[serde(default)]
+    pub model: Option<String>,
 }
 
 /// Response from Perplexity tools.
@@ -50,6 +65,7 @@ pub struct FollowUpInfo {
 #[derive(Clone)]
 pub struct PerplexityServer {
     client: Client,
+    default_model: Option<Model>,
     tool_router: ToolRouter<Self>,
 }
 
@@ -63,8 +79,8 @@ fn response_to_tool_result(response: PerplexityResponse) -> Result<CallToolResul
 
 impl PerplexityServer {
     /// Creates a new server instance with the given Perplexity client.
-    pub fn new(client: Client) -> Self {
-        Self { client, tool_router: Self::tool_router() }
+    pub fn new(client: Client, default_model: Option<Model>) -> Self {
+        Self { client, default_model, tool_router: Self::tool_router() }
     }
 
     /// Helper to execute a search with the given mode.
@@ -72,8 +88,25 @@ impl PerplexityServer {
         &self,
         params: PerplexityRequest,
         mode: SearchMode,
+        requested_model: Option<Model>,
     ) -> Result<PerplexityResponse, McpError> {
-        let mut request = SearchRequest::new(&params.query).mode(mode).incognito(true);
+        let resolved_model = requested_model.or(if mode == SearchMode::Auto {
+            self.default_model
+        } else {
+            None
+        });
+        let effective_mode = if mode == SearchMode::Auto && resolved_model.is_some() {
+            SearchMode::Pro
+        } else {
+            mode
+        };
+
+        let mut request =
+            SearchRequest::new(&params.query).mode(effective_mode).incognito(true);
+
+        if let Some(model) = resolved_model {
+            request = request.model(model);
+        }
 
         if let Some(sources) = params.sources
             && !sources.is_empty()
@@ -108,7 +141,7 @@ impl PerplexityServer {
 
 #[tool_router]
 impl PerplexityServer {
-    /// Quick web search using Perplexity's turbo model.
+    /// Quick web search using Perplexity's turbo model or an optional Pro model.
     ///
     /// Best for: Quick questions, everyday searches, and conversational queries
     /// that benefit from web context.
@@ -118,9 +151,20 @@ impl PerplexityServer {
     )]
     pub async fn perplexity_search(
         &self,
-        Parameters(params): Parameters<PerplexityRequest>,
+        Parameters(params): Parameters<PerplexitySearchRequest>,
     ) -> Result<CallToolResult, McpError> {
-        response_to_tool_result(self.do_search(params, SearchMode::Auto).await?)
+        let requested_model = params
+            .model
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(parse_search_model)
+            .transpose()
+            .map_err(|e| McpError::internal_error(e, None))?;
+
+        response_to_tool_result(
+            self.do_search(params.common, SearchMode::Auto, requested_model).await?,
+        )
     }
 
     /// Deep, comprehensive research using Perplexity's sonar-deep-research model.
@@ -135,7 +179,7 @@ impl PerplexityServer {
         &self,
         Parameters(params): Parameters<PerplexityRequest>,
     ) -> Result<CallToolResult, McpError> {
-        response_to_tool_result(self.do_search(params, SearchMode::DeepResearch).await?)
+        response_to_tool_result(self.do_search(params, SearchMode::DeepResearch, None).await?)
     }
 
     /// Advanced reasoning and problem-solving using Perplexity's sonar-reasoning-pro model.
@@ -150,7 +194,7 @@ impl PerplexityServer {
         &self,
         Parameters(params): Parameters<PerplexityRequest>,
     ) -> Result<CallToolResult, McpError> {
-        response_to_tool_result(self.do_search(params, SearchMode::Reasoning).await?)
+        response_to_tool_result(self.do_search(params, SearchMode::Reasoning, None).await?)
     }
 }
 

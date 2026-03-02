@@ -45,10 +45,21 @@ This server requires a Perplexity AI account. You need to extract two authentica
    - `__Secure-next-auth.session-token` → use as `PERPLEXITY_SESSION_TOKEN`
    - `next-auth.csrf-token` → use as `PERPLEXITY_CSRF_TOKEN`
 
+### Environment Variables
+
+- `PERPLEXITY_SESSION_TOKEN` (required): Perplexity session token (`next-auth.session-token` cookie)
+- `PERPLEXITY_CSRF_TOKEN` (required): Perplexity CSRF token (`next-auth.csrf-token` cookie)
+- `PERPLEXITY_DEFAULT_MODEL` (optional): Default model for `perplexity_search`.
+  Valid values:
+    - `sonar`
+    - `gpt-5.2`
+    - `claude-4.5-sonnet`
+    - `grok-4.1`
+
 ### Claude Code
 
 ```bash
-claude mcp add perplexity --env PERPLEXITY_SESSION_TOKEN="your-session-token" --env PERPLEXITY_CSRF_TOKEN="your-csrf-token" -- npx -y perplexity-web-api-mcp
+claude mcp add perplexity --env PERPLEXITY_SESSION_TOKEN="your-session-token" --env PERPLEXITY_CSRF_TOKEN="your-csrf-token" --env PERPLEXITY_DEFAULT_MODEL="gpt-5.2" -- npx -y perplexity-web-api-mcp
 ```
 
 ### Cursor, Claude Desktop & Windsurf
@@ -112,7 +123,7 @@ Most clients can be manually configured to use the `mcpServers` wrapper in their
 
 ### `perplexity_search`
 
-Quick web search using Perplexity's turbo model.
+Quick web search using Perplexity's turbo model, or an optional Pro model.
 
 **Best for:** Quick questions, everyday searches, and conversational queries that benefit from web context.
 
@@ -121,6 +132,9 @@ Quick web search using Perplexity's turbo model.
 - `query` (required): The search query or question
 - `sources` (optional): Array of sources - `"web"`, `"scholar"`, `"social"`. Defaults to `["web"]`
 - `language` (optional): Language code, e.g., `"en-US"`. Defaults to `"en-US"`
+- `model` (optional): Search model override
+  - If omitted, `PERPLEXITY_DEFAULT_MODEL` is used when set
+  - If neither `model` nor `PERPLEXITY_DEFAULT_MODEL` is set, the default turbo behavior is used
 
 ### `perplexity_research`
 
@@ -128,7 +142,7 @@ Deep, comprehensive research using Perplexity's sonar-deep-research (`pplx_alpha
 
 **Best for:** Complex topics requiring detailed investigation, comprehensive reports, and in-depth analysis. Provides thorough analysis with citations.
 
-**Parameters:** Same as `perplexity_search`
+**Parameters:** Same as `perplexity_search`, except `model` is not supported.
 
 ### `perplexity_reason`
 
@@ -136,7 +150,7 @@ Advanced reasoning and problem-solving using Perplexity's sonar-reasoning-pro (`
 
 **Best for:** Logical problems, complex analysis, decision-making, and tasks requiring step-by-step reasoning.
 
-**Parameters:** Same as `perplexity_search`
+**Parameters:** Same as `perplexity_search`, except `model` is not supported.
 
 ## Response Format
 

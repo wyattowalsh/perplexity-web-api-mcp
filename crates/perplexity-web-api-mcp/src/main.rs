@@ -2,9 +2,9 @@
 
 mod server;
 
-use perplexity_web_api::Client;
+use perplexity_web_api::{Client, Model, parse_search_model};
 use rmcp::{ServiceExt, transport::stdio};
-use std::{collections::HashMap, env};
+use std::{collections::HashMap, env, env::VarError};
 use tracing_subscriber::{EnvFilter, fmt};
 
 use crate::server::PerplexityServer;
@@ -50,6 +50,26 @@ fn require_env(name: &str) -> Result<String, std::io::Error> {
     })
 }
 
+/// Reads an optional default model from environment.
+fn optional_model_env(name: &str) -> Result<Option<Model>, std::io::Error> {
+    match env::var(name) {
+        Ok(value) => {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                return Ok(None);
+            }
+
+            parse_search_model(trimmed).map(Some).map_err(|e| {
+                std::io::Error::other(format!("Invalid environment variable {name}: {e}"))
+            })
+        }
+        Err(VarError::NotPresent) => Ok(None),
+        Err(VarError::NotUnicode(_)) => Err(std::io::Error::other(format!(
+            "Environment variable {name} must be valid UTF-8"
+        ))),
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize tracing (logs to stderr to not interfere with stdio transport)
@@ -64,6 +84,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Read required environment variables
     let session_token = require_env("PERPLEXITY_SESSION_TOKEN")?;
     let csrf_token = require_env("PERPLEXITY_CSRF_TOKEN")?;
+    let default_model = optional_model_env("PERPLEXITY_DEFAULT_MODEL")?;
 
     tracing::info!("Starting Perplexity MCP server");
 
@@ -81,7 +102,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Perplexity client initialized");
 
     // Create and start the MCP server
-    let server = PerplexityServer::new(client);
+    let server = PerplexityServer::new(client, default_model);
 
     let service = server.serve(stdio()).await.inspect_err(|e| {
         tracing::error!("Server error: {:?}", e);

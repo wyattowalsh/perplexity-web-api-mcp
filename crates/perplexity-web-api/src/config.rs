@@ -1,4 +1,5 @@
 use crate::types::{Model, SearchMode};
+use std::sync::OnceLock;
 
 pub const API_BASE_URL: &str = "https://www.perplexity.ai";
 pub const API_VERSION: &str = "2.18";
@@ -41,6 +42,35 @@ pub const MODEL_PREFERENCE_KIMIK2THINKING: &str = "kimik2thinking";
 
 pub const MODEL_NAME_GROK41_REASONING: &str = "grok-4.1-reasoning";
 pub const MODEL_PREFERENCE_GROK41_REASONING: &str = "grok41reasoning";
+
+pub const VALID_SEARCH_MODELS: [&str; 4] =
+    [MODEL_NAME_SONAR, MODEL_NAME_GPT52, MODEL_NAME_CLAUDE45SONNET, MODEL_NAME_GROK41];
+
+static VALID_SEARCH_MODELS_CSV: OnceLock<String> = OnceLock::new();
+
+fn valid_search_models_csv() -> &'static str {
+    VALID_SEARCH_MODELS_CSV.get_or_init(|| VALID_SEARCH_MODELS.join(", ")).as_str()
+}
+
+/// Parses a model for `perplexity_search`.
+///
+/// Only Pro-mode search models are accepted.
+pub fn parse_search_model(model: &str) -> Result<Model, String> {
+    let supported_models = valid_search_models_csv();
+    let parsed = model.parse::<Model>().map_err(|_| {
+        format!(
+            "Invalid model '{model}'. Supported values for perplexity_search: {supported_models}"
+        )
+    })?;
+
+    match parsed {
+        Model::Sonar | Model::Gpt52 | Model::Claude45Sonnet | Model::Grok41 => Ok(parsed),
+        _ => Err(format!(
+            "Model '{}' is not supported for perplexity_search. Supported values: {supported_models}",
+            parsed.as_str()
+        )),
+    }
+}
 
 /// Returns the model preference string for the API payload.
 ///
@@ -189,5 +219,31 @@ mod tests {
             model_preference(SearchMode::DeepResearch, Some(Model::Gpt52Thinking)),
             None
         );
+    }
+
+    #[test]
+    fn test_parse_search_model_accepts_supported_models() {
+        assert_eq!(parse_search_model(MODEL_NAME_SONAR), Ok(Model::Sonar));
+        assert_eq!(parse_search_model(MODEL_NAME_GPT52), Ok(Model::Gpt52));
+        assert_eq!(parse_search_model(MODEL_NAME_CLAUDE45SONNET), Ok(Model::Claude45Sonnet));
+        assert_eq!(parse_search_model(MODEL_NAME_GROK41), Ok(Model::Grok41));
+    }
+
+    #[test]
+    fn test_parse_search_model_rejects_reasoning_models() {
+        let err = parse_search_model(MODEL_NAME_GPT52_THINKING)
+            .expect_err("should reject reasoning model");
+        assert!(err.contains("not supported for perplexity_search"));
+    }
+
+    #[test]
+    fn test_parse_search_model_rejects_unknown_models() {
+        let err =
+            parse_search_model("unknown-model").expect_err("should reject unknown model");
+        assert!(err.contains("Supported values for perplexity_search"));
+        assert!(err.contains(MODEL_NAME_SONAR));
+        assert!(err.contains(MODEL_NAME_GPT52));
+        assert!(err.contains(MODEL_NAME_CLAUDE45SONNET));
+        assert!(err.contains(MODEL_NAME_GROK41));
     }
 }
