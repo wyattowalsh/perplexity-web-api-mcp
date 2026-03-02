@@ -12,17 +12,35 @@ pub const API_MODE_COPILOT: &str = "copilot";
 
 pub const MODEL_PREFERENCE_TURBO: &str = "turbo";
 pub const MODEL_PREFERENCE_PPLX_PRO: &str = "pplx_pro";
-pub const MODEL_PREFERENCE_EXPERIMENTAL: &str = "experimental";
-pub const MODEL_PREFERENCE_GPT52: &str = "gpt52";
-pub const MODEL_PREFERENCE_CLAUDE45SONNET: &str = "claude45sonnet";
-pub const MODEL_PREFERENCE_GROK41_NONREASONING: &str = "grok41nonreasoning";
 pub const MODEL_PREFERENCE_PPLX_REASONING: &str = "pplx_reasoning";
-pub const MODEL_PREFERENCE_GPT52_THINKING: &str = "gpt52_thinking";
-pub const MODEL_PREFERENCE_CLAUDE45SONNET_THINKING: &str = "claude45sonnetthinking";
-pub const MODEL_PREFERENCE_GEMINI30PRO: &str = "gemini30pro";
-pub const MODEL_PREFERENCE_KIMIK2THINKING: &str = "kimik2thinking";
-pub const MODEL_PREFERENCE_GROK41_REASONING: &str = "grok41reasoning";
 pub const MODEL_PREFERENCE_PPLX_ALPHA: &str = "pplx_alpha";
+
+pub const MODEL_NAME_SONAR: &str = "sonar";
+pub const MODEL_PREFERENCE_SONAR: &str = "experimental";
+
+pub const MODEL_NAME_GPT52: &str = "gpt-5.2";
+pub const MODEL_PREFERENCE_GPT52: &str = "gpt52";
+
+pub const MODEL_NAME_CLAUDE45SONNET: &str = "claude-4.5-sonnet";
+pub const MODEL_PREFERENCE_CLAUDE45SONNET: &str = "claude45sonnet";
+
+pub const MODEL_NAME_GROK41: &str = "grok-4.1";
+pub const MODEL_PREFERENCE_GROK41: &str = "grok41nonreasoning";
+
+pub const MODEL_NAME_GPT52_THINKING: &str = "gpt-5.2-thinking";
+pub const MODEL_PREFERENCE_GPT52_THINKING: &str = "gpt52_thinking";
+
+pub const MODEL_NAME_CLAUDE45SONNET_THINKING: &str = "claude-4.5-sonnet-thinking";
+pub const MODEL_PREFERENCE_CLAUDE45SONNET_THINKING: &str = "claude45sonnetthinking";
+
+pub const MODEL_NAME_GEMINI30PRO: &str = "gemini-3.0-pro";
+pub const MODEL_PREFERENCE_GEMINI30PRO: &str = "gemini30pro";
+
+pub const MODEL_NAME_KIMIK2THINKING: &str = "kimi-k2-thinking";
+pub const MODEL_PREFERENCE_KIMIK2THINKING: &str = "kimik2thinking";
+
+pub const MODEL_NAME_GROK41_REASONING: &str = "grok-4.1-reasoning";
+pub const MODEL_PREFERENCE_GROK41_REASONING: &str = "grok41reasoning";
 
 /// Returns the model preference string for the API payload.
 ///
@@ -36,12 +54,12 @@ pub fn model_preference(mode: SearchMode, model: Option<Model>) -> Option<&'stat
 
         // Pro mode models
         (SearchMode::Pro, None) => Some(MODEL_PREFERENCE_PPLX_PRO),
-        (SearchMode::Pro, Some(Model::Sonar)) => Some(MODEL_PREFERENCE_EXPERIMENTAL),
+        (SearchMode::Pro, Some(Model::Sonar)) => Some(MODEL_PREFERENCE_SONAR),
         (SearchMode::Pro, Some(Model::Gpt52)) => Some(MODEL_PREFERENCE_GPT52),
         (SearchMode::Pro, Some(Model::Claude45Sonnet)) => {
             Some(MODEL_PREFERENCE_CLAUDE45SONNET)
         }
-        (SearchMode::Pro, Some(Model::Grok41)) => Some(MODEL_PREFERENCE_GROK41_NONREASONING),
+        (SearchMode::Pro, Some(Model::Grok41)) => Some(MODEL_PREFERENCE_GROK41),
         (SearchMode::Pro, Some(_)) => None, // Other models not valid for Pro
 
         // Reasoning mode models
@@ -75,7 +93,7 @@ mod tests {
 
     #[test]
     fn test_auto_mode_defaults() {
-        assert_eq!(model_preference(SearchMode::Auto, None), Some("turbo"));
+        assert_eq!(model_preference(SearchMode::Auto, None), Some(MODEL_PREFERENCE_TURBO));
     }
 
     #[test]
@@ -86,23 +104,26 @@ mod tests {
 
     #[test]
     fn test_pro_mode_defaults() {
-        assert_eq!(model_preference(SearchMode::Pro, None), Some("pplx_pro"));
+        assert_eq!(model_preference(SearchMode::Pro, None), Some(MODEL_PREFERENCE_PPLX_PRO));
     }
 
     #[test]
     fn test_pro_mode_models() {
         assert_eq!(
             model_preference(SearchMode::Pro, Some(Model::Sonar)),
-            Some("experimental")
+            Some(MODEL_PREFERENCE_SONAR)
         );
-        assert_eq!(model_preference(SearchMode::Pro, Some(Model::Gpt52)), Some("gpt52"));
+        assert_eq!(
+            model_preference(SearchMode::Pro, Some(Model::Gpt52)),
+            Some(MODEL_PREFERENCE_GPT52)
+        );
         assert_eq!(
             model_preference(SearchMode::Pro, Some(Model::Claude45Sonnet)),
-            Some("claude45sonnet")
+            Some(MODEL_PREFERENCE_CLAUDE45SONNET)
         );
         assert_eq!(
             model_preference(SearchMode::Pro, Some(Model::Grok41)),
-            Some("grok41nonreasoning")
+            Some(MODEL_PREFERENCE_GROK41)
         );
     }
 
@@ -117,30 +138,33 @@ mod tests {
 
     #[test]
     fn test_reasoning_mode_defaults() {
-        assert_eq!(model_preference(SearchMode::Reasoning, None), Some("pplx_reasoning"));
+        assert_eq!(
+            model_preference(SearchMode::Reasoning, None),
+            Some(MODEL_PREFERENCE_PPLX_REASONING)
+        );
     }
 
     #[test]
     fn test_reasoning_mode_models() {
         assert_eq!(
             model_preference(SearchMode::Reasoning, Some(Model::Gpt52Thinking)),
-            Some("gpt52_thinking")
+            Some(MODEL_PREFERENCE_GPT52_THINKING)
         );
         assert_eq!(
             model_preference(SearchMode::Reasoning, Some(Model::Claude45SonnetThinking)),
-            Some("claude45sonnetthinking")
+            Some(MODEL_PREFERENCE_CLAUDE45SONNET_THINKING)
         );
         assert_eq!(
             model_preference(SearchMode::Reasoning, Some(Model::Gemini30Pro)),
-            Some("gemini30pro")
+            Some(MODEL_PREFERENCE_GEMINI30PRO)
         );
         assert_eq!(
             model_preference(SearchMode::Reasoning, Some(Model::KimiK2Thinking)),
-            Some("kimik2thinking")
+            Some(MODEL_PREFERENCE_KIMIK2THINKING)
         );
         assert_eq!(
             model_preference(SearchMode::Reasoning, Some(Model::Grok41Reasoning)),
-            Some("grok41reasoning")
+            Some(MODEL_PREFERENCE_GROK41_REASONING)
         );
     }
 
@@ -152,7 +176,10 @@ mod tests {
 
     #[test]
     fn test_deep_research_mode_defaults() {
-        assert_eq!(model_preference(SearchMode::DeepResearch, None), Some("pplx_alpha"));
+        assert_eq!(
+            model_preference(SearchMode::DeepResearch, None),
+            Some(MODEL_PREFERENCE_PPLX_ALPHA)
+        );
     }
 
     #[test]

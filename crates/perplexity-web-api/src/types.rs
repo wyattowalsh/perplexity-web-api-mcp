@@ -1,3 +1,8 @@
+use crate::config::{
+    MODEL_NAME_CLAUDE45SONNET, MODEL_NAME_CLAUDE45SONNET_THINKING, MODEL_NAME_GEMINI30PRO,
+    MODEL_NAME_GPT52, MODEL_NAME_GPT52_THINKING, MODEL_NAME_GROK41,
+    MODEL_NAME_GROK41_REASONING, MODEL_NAME_KIMIK2THINKING, MODEL_NAME_SONAR,
+};
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -140,15 +145,15 @@ impl Model {
     /// Returns the user-facing string representation.
     pub fn as_str(&self) -> &'static str {
         match self {
-            Self::Sonar => "sonar",
-            Self::Gpt52 => "gpt-5.2",
-            Self::Claude45Sonnet => "claude-4.5-sonnet",
-            Self::Grok41 => "grok-4.1",
-            Self::Gpt52Thinking => "gpt-5.2-thinking",
-            Self::Claude45SonnetThinking => "claude-4.5-sonnet-thinking",
-            Self::Gemini30Pro => "gemini-3.0-pro",
-            Self::KimiK2Thinking => "kimi-k2-thinking",
-            Self::Grok41Reasoning => "grok-4.1-reasoning",
+            Self::Sonar => MODEL_NAME_SONAR,
+            Self::Gpt52 => MODEL_NAME_GPT52,
+            Self::Claude45Sonnet => MODEL_NAME_CLAUDE45SONNET,
+            Self::Grok41 => MODEL_NAME_GROK41,
+            Self::Gpt52Thinking => MODEL_NAME_GPT52_THINKING,
+            Self::Claude45SonnetThinking => MODEL_NAME_CLAUDE45SONNET_THINKING,
+            Self::Gemini30Pro => MODEL_NAME_GEMINI30PRO,
+            Self::KimiK2Thinking => MODEL_NAME_KIMIK2THINKING,
+            Self::Grok41Reasoning => MODEL_NAME_GROK41_REASONING,
         }
     }
 }
@@ -164,17 +169,26 @@ impl FromStr for Model {
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s {
-            "sonar" => Ok(Self::Sonar),
-            "gpt-5.2" => Ok(Self::Gpt52),
-            "claude-4.5-sonnet" => Ok(Self::Claude45Sonnet),
-            "grok-4.1" => Ok(Self::Grok41),
-            "gpt-5.2-thinking" => Ok(Self::Gpt52Thinking),
-            "claude-4.5-sonnet-thinking" => Ok(Self::Claude45SonnetThinking),
-            "gemini-3.0-pro" => Ok(Self::Gemini30Pro),
-            "kimi-k2-thinking" => Ok(Self::KimiK2Thinking),
-            "grok-4.1-reasoning" => Ok(Self::Grok41Reasoning),
+            MODEL_NAME_SONAR => Ok(Self::Sonar),
+            MODEL_NAME_GPT52 => Ok(Self::Gpt52),
+            MODEL_NAME_CLAUDE45SONNET => Ok(Self::Claude45Sonnet),
+            MODEL_NAME_GROK41 => Ok(Self::Grok41),
+            MODEL_NAME_GPT52_THINKING => Ok(Self::Gpt52Thinking),
+            MODEL_NAME_CLAUDE45SONNET_THINKING => Ok(Self::Claude45SonnetThinking),
+            MODEL_NAME_GEMINI30PRO => Ok(Self::Gemini30Pro),
+            MODEL_NAME_KIMIK2THINKING => Ok(Self::KimiK2Thinking),
+            MODEL_NAME_GROK41_REASONING => Ok(Self::Grok41Reasoning),
             _ => Err(format!(
-                "unknown model '{s}', expected one of: sonar, gpt-5.2, claude-4.5-sonnet, grok-4.1, gpt-5.2-thinking, claude-4.5-sonnet-thinking, gemini-3.0-pro, kimi-k2-thinking, grok-4.1-reasoning"
+                "unknown model '{s}', expected one of: {}, {}, {}, {}, {}, {}, {}, {}, {}",
+                MODEL_NAME_SONAR,
+                MODEL_NAME_GPT52,
+                MODEL_NAME_CLAUDE45SONNET,
+                MODEL_NAME_GROK41,
+                MODEL_NAME_GPT52_THINKING,
+                MODEL_NAME_CLAUDE45SONNET_THINKING,
+                MODEL_NAME_GEMINI30PRO,
+                MODEL_NAME_KIMIK2THINKING,
+                MODEL_NAME_GROK41_REASONING
             )),
         }
     }
