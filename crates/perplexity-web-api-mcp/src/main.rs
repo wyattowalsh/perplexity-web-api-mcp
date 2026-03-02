@@ -9,20 +9,44 @@ use tracing_subscriber::{EnvFilter, fmt};
 
 use crate::server::PerplexityServer;
 
-/// Reads a required environment variable or exits with an error.
-fn require_env(name: &str) -> String {
-    env::var(name).unwrap_or_else(|_| {
-        eprintln!("Error: Required environment variable {} is not set.", name);
-        eprintln!();
-        eprintln!("Usage:");
-        eprintln!("  PERPLEXITY_SESSION_TOKEN=<token> PERPLEXITY_CSRF_TOKEN=<token> perplexity-web-api-mcp");
-        eprintln!();
-        eprintln!("Required environment variables:");
-        eprintln!(
-            "  PERPLEXITY_SESSION_TOKEN  - Perplexity session token (next-auth.session-token cookie)"
-        );
-        eprintln!("  PERPLEXITY_CSRF_TOKEN     - Perplexity CSRF token (next-auth.csrf-token cookie)");
-        std::process::exit(1);
+#[cfg(unix)]
+async fn shutdown_signal() {
+    use tokio::signal::unix::{SignalKind, signal};
+
+    match signal(SignalKind::terminate()) {
+        Ok(mut sigterm) => {
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {}
+                _ = sigterm.recv() => {}
+            }
+        }
+        Err(err) => {
+            tracing::warn!("Failed to register SIGTERM handler: {}", err);
+            if let Err(ctrl_c_err) = tokio::signal::ctrl_c().await {
+                tracing::warn!("Failed to listen for SIGINT: {}", ctrl_c_err);
+            }
+        }
+    }
+}
+
+#[cfg(not(unix))]
+async fn shutdown_signal() {
+    if let Err(err) = tokio::signal::ctrl_c().await {
+        tracing::warn!("Failed to listen for shutdown signal: {}", err);
+    }
+}
+
+/// Reads a required environment variable or returns a descriptive error.
+fn require_env(name: &str) -> Result<String, std::io::Error> {
+    env::var(name).map_err(|_| {
+        std::io::Error::other(format!(
+            "Required environment variable {name} is not set.\n\n\
+             Usage:\n\
+               PERPLEXITY_SESSION_TOKEN=<token> PERPLEXITY_CSRF_TOKEN=<token> perplexity-web-api-mcp\n\n\
+             Required environment variables:\n\
+               PERPLEXITY_SESSION_TOKEN  - Perplexity session token (next-auth.session-token cookie)\n\
+               PERPLEXITY_CSRF_TOKEN     - Perplexity CSRF token (next-auth.csrf-token cookie)"
+        ))
     })
 }
 
@@ -38,8 +62,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     // Read required environment variables
-    let session_token = require_env("PERPLEXITY_SESSION_TOKEN");
-    let csrf_token = require_env("PERPLEXITY_CSRF_TOKEN");
+    let session_token = require_env("PERPLEXITY_SESSION_TOKEN")?;
+    let csrf_token = require_env("PERPLEXITY_CSRF_TOKEN")?;
 
     tracing::info!("Starting Perplexity MCP server");
 
@@ -65,7 +89,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tracing::info!("MCP server running on stdio");
 
-    service.waiting().await?;
+    tokio::select! {
+        result = service.waiting() => {
+            result?;
+        }
+        _ = shutdown_signal() => {
+            tracing::info!("Shutdown signal received, stopping MCP server");
+        }
+    }
 
     Ok(())
 }
