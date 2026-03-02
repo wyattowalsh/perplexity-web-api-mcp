@@ -40,6 +40,7 @@ rmcp = { version = "0.17.0", features = [
     "transport-io",
     "schemars",
 ] }
+schemars = "1.2.1"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 

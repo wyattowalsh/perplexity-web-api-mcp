@@ -13,9 +13,9 @@ name = "perplexity-web-api-mcp"
 path = "src/main.rs"
 
 [dependencies]
-perplexity-web-api = { workspace = true }
+perplexity-web-api = { workspace = true, features = ["schemars"] }
 
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["signal"] }
 rmcp = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

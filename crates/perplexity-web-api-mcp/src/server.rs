@@ -1,4 +1,4 @@
-use perplexity_web_api::{Client, SearchMode, SearchRequest, Source};
+use perplexity_web_api::{Client, SearchMode, SearchRequest, SearchWebResult, Source};
 use rmcp::{
     ErrorData as McpError, ServerHandler,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
@@ -6,7 +6,6 @@ use rmcp::{
     schemars, tool, tool_handler, tool_router,
 };
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
 /// Request parameters shared by all Perplexity tools.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
@@ -24,29 +23,6 @@ pub struct PerplexityRequest {
     pub language: Option<String>,
 }
 
-/// Parses a source string into a Source enum.
-fn parse_source(s: &str) -> Option<Source> {
-    match s {
-        "web" => Some(Source::Web),
-        "scholar" => Some(Source::Scholar),
-        "social" => Some(Source::Social),
-        _ => None,
-    }
-}
-
-/// Web result information from search.
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct WebResultInfo {
-    /// Name/title of the web result.
-    pub name: String,
-
-    /// URL of the web result.
-    pub url: String,
-
-    /// Snippet/excerpt from the web result.
-    pub snippet: String,
-}
-
 /// Response from Perplexity tools.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PerplexityResponse {
@@ -54,7 +30,7 @@ pub struct PerplexityResponse {
     pub answer: Option<String>,
 
     /// Web search results/sources from the response.
-    pub web_results: Vec<WebResultInfo>,
+    pub web_results: Vec<SearchWebResult>,
 
     /// Context for making follow-up queries.
     pub follow_up: FollowUpInfo,
@@ -73,7 +49,7 @@ pub struct FollowUpInfo {
 /// MCP server wrapping Perplexity AI client.
 #[derive(Clone)]
 pub struct PerplexityServer {
-    client: Arc<Client>,
+    client: Client,
     tool_router: ToolRouter<Self>,
 }
 
@@ -88,7 +64,7 @@ fn response_to_tool_result(response: PerplexityResponse) -> Result<CallToolResul
 impl PerplexityServer {
     /// Creates a new server instance with the given Perplexity client.
     pub fn new(client: Client) -> Self {
-        Self { client: Arc::new(client), tool_router: Self::tool_router() }
+        Self { client, tool_router: Self::tool_router() }
     }
 
     /// Helper to execute a search with the given mode.
@@ -103,7 +79,7 @@ impl PerplexityServer {
             && !sources.is_empty()
         {
             let parsed_sources: Vec<Source> =
-                sources.iter().filter_map(|s| parse_source(s.as_str())).collect();
+                sources.iter().filter_map(|s| s.parse::<Source>().ok()).collect();
             if !parsed_sources.is_empty() {
                 request = request.sources(parsed_sources);
             }
@@ -116,17 +92,15 @@ impl PerplexityServer {
         let response = self.client.search(request).await.map_err(|e| {
             McpError::internal_error(format!("Perplexity API error: {}", e), None)
         })?;
+        let perplexity_web_api::SearchResponse { answer, web_results, follow_up, .. } =
+            response;
 
         Ok(PerplexityResponse {
-            answer: response.answer,
-            web_results: response
-                .web_results
-                .into_iter()
-                .map(|r| WebResultInfo { name: r.name, url: r.url, snippet: r.snippet })
-                .collect(),
+            answer,
+            web_results,
             follow_up: FollowUpInfo {
-                backend_uuid: response.follow_up.backend_uuid,
-                attachments: response.follow_up.attachments,
+                backend_uuid: follow_up.backend_uuid,
+                attachments: follow_up.attachments,
             },
         })
     }

@@ -2,6 +2,7 @@ use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
+use std::str::FromStr;
 
 /// Search mode for Perplexity queries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -35,6 +36,30 @@ impl fmt::Display for SearchMode {
     }
 }
 
+impl FromStr for SearchMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s {
+            "auto" => Ok(Self::Auto),
+            "pro" => Ok(Self::Pro),
+            "reasoning" => Ok(Self::Reasoning),
+            "deep research" => Ok(Self::DeepResearch),
+            _ => Err(format!(
+                "unknown search mode '{s}', expected one of: auto, pro, reasoning, deep research"
+            )),
+        }
+    }
+}
+
+impl TryFrom<&str> for SearchMode {
+    type Error = String;
+
+    fn try_from(value: &str) -> std::result::Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+
 /// Information source for search queries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Source {
@@ -61,6 +86,27 @@ impl Source {
 impl fmt::Display for Source {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for Source {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s {
+            "web" => Ok(Self::Web),
+            "scholar" => Ok(Self::Scholar),
+            "social" => Ok(Self::Social),
+            _ => Err(format!("unknown source '{s}', expected one of: web, scholar, social")),
+        }
+    }
+}
+
+impl TryFrom<&str> for Source {
+    type Error = String;
+
+    fn try_from(value: &str) -> std::result::Result<Self, Self::Error> {
+        value.parse()
     }
 }
 
@@ -110,6 +156,35 @@ impl Model {
 impl fmt::Display for Model {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for Model {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s {
+            "sonar" => Ok(Self::Sonar),
+            "gpt-5.2" => Ok(Self::Gpt52),
+            "claude-4.5-sonnet" => Ok(Self::Claude45Sonnet),
+            "grok-4.1" => Ok(Self::Grok41),
+            "gpt-5.2-thinking" => Ok(Self::Gpt52Thinking),
+            "claude-4.5-sonnet-thinking" => Ok(Self::Claude45SonnetThinking),
+            "gemini-3.0-pro" => Ok(Self::Gemini30Pro),
+            "kimi-k2-thinking" => Ok(Self::KimiK2Thinking),
+            "grok-4.1-reasoning" => Ok(Self::Grok41Reasoning),
+            _ => Err(format!(
+                "unknown model '{s}', expected one of: sonar, gpt-5.2, claude-4.5-sonnet, grok-4.1, gpt-5.2-thinking, claude-4.5-sonnet-thinking, gemini-3.0-pro, kimi-k2-thinking, grok-4.1-reasoning"
+            )),
+        }
+    }
+}
+
+impl TryFrom<&str> for Model {
+    type Error = String;
+
+    fn try_from(value: &str) -> std::result::Result<Self, Self::Error> {
+        value.parse()
     }
 }
 
@@ -285,6 +360,7 @@ impl SearchEvent {
     }
 }
 
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchWebResult {
     pub name: String,

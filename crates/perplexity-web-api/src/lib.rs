@@ -94,6 +94,6 @@ mod upload;
 pub use client::{Client, ClientBuilder};
 pub use error::{Error, Result};
 pub use types::{
-    FollowUpContext, Model, SearchEvent, SearchMode, SearchRequest, SearchResponse, Source,
-    UploadFile,
+    FollowUpContext, Model, SearchEvent, SearchMode, SearchRequest, SearchResponse,
+    SearchWebResult, Source, UploadFile,
 };

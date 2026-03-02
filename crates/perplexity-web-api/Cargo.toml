@@ -8,6 +8,10 @@ license = { workspace = true }
 repository = { workspace = true }
 keywords = { workspace = true }
 
+[features]
+default = []
+schemars = ["dep:schemars"]
+
 [dependencies]
 tokio = { workspace = true }
 serde = { workspace = true }
@@ -23,3 +27,4 @@ async-stream = { workspace = true }
 pin-project-lite = { workspace = true }
 rquest = { workspace = true }
 rquest-util = { workspace = true }
+schemars = { workspace = true, optional = true }
