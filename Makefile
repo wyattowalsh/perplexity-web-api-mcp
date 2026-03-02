@@ -1,6 +1,6 @@
 VERSION := 0.4.1
 
-.PHONY: publish test-unit test-integration test
+.PHONY: publish test-unit test-e2e test
 
 test-unit:
 	@cargo test --workspace --lib

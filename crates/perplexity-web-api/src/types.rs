@@ -24,9 +24,9 @@ impl SearchMode {
     /// Returns the default model preference for this mode.
     pub const fn default_preference(&self) -> &'static str {
         match self {
-            Self::Auto => SearchModel::Turbo.as_str(),
-            Self::Pro => SearchModel::SonarPro.as_str(),
-            Self::Reasoning => ReasonModel::SonarReasoning.as_str(),
+            Self::Auto => SearchModel::Turbo.api_preference().as_str(),
+            Self::Pro => SearchModel::SonarPro.api_preference().as_str(),
+            Self::Reasoning => ReasonModel::SonarReasoning.api_preference().as_str(),
             Self::DeepResearch => DEEP_RESEARCH_MODEL_PREFERENCE,
         }
     }

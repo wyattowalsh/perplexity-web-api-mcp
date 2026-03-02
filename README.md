@@ -51,6 +51,7 @@ This server requires a Perplexity AI account. You need to extract two authentica
 - `PERPLEXITY_CSRF_TOKEN` (required): Perplexity CSRF token (`next-auth.csrf-token` cookie)
 - `PERPLEXITY_SEARCH_MODEL` (optional): Model for `perplexity_search`.
   Valid values:
+    - `turbo` (default)
     - `sonar`
     - `gemini-3-flash`
     - `gpt-5.2`
@@ -58,7 +59,7 @@ This server requires a Perplexity AI account. You need to extract two authentica
     - `grok-4.1`
 - `PERPLEXITY_REASON_MODEL` (optional): Model for `perplexity_reason`.
   Valid values:
-    - `sonar-reasoning`
+    - `sonar-reasoning` (default)
     - `gemini-3-flash-thinking`
     - `gemini-3.1-pro`
     - `gpt-5.2-thinking`
@@ -133,7 +134,7 @@ Most clients can be manually configured to use the `mcpServers` wrapper in their
 
 ### `perplexity_search`
 
-Quick web search using Perplexity's default model (turbo) behavior, or the model configured via `PERPLEXITY_SEARCH_MODEL`.
+Quick web search using non-reasoning models. By default uses Perplexity's turbo model (`turbo`), but can be configured via `PERPLEXITY_SEARCH_MODEL`.
 
 **Best for:** Quick questions, everyday searches, and conversational queries that benefit from web context.
 
@@ -143,7 +144,13 @@ Quick web search using Perplexity's default model (turbo) behavior, or the model
 - `sources` (optional): Array of sources - `"web"`, `"scholar"`, `"social"`. Defaults to `["web"]`
 - `language` (optional): Language code, e.g., `"en-US"`. Defaults to `"en-US"`
 
-Model selection is controlled by `PERPLEXITY_SEARCH_MODEL` only.
+### `perplexity_reason`
+
+Advanced reasoning and problem-solving. By default uses Perplexity's `sonar-reasoning` model, but can be configured via `PERPLEXITY_REASON_MODEL`.
+
+**Best for:** Logical problems, complex analysis, decision-making, and tasks requiring step-by-step reasoning.
+
+**Parameters:** Same as `perplexity_search`.
 
 ### `perplexity_research`
 
@@ -152,20 +159,6 @@ Deep, comprehensive research using Perplexity's sonar-deep-research (`pplx_alpha
 **Best for:** Complex topics requiring detailed investigation, comprehensive reports, and in-depth analysis. Provides thorough analysis with citations.
 
 **Parameters:** Same as `perplexity_search`.
-
-### `perplexity_reason`
-
-Advanced reasoning and problem-solving using Perplexity's sonar-reasoning-pro (`pplx_reasoning`) model.
-
-**Best for:** Logical problems, complex analysis, decision-making, and tasks requiring step-by-step reasoning.
-
-**Parameters:**
-
-- `query` (required): The search query or question
-- `sources` (optional): Array of sources - `"web"`, `"scholar"`, `"social"`. Defaults to `["web"]`
-- `language` (optional): Language code, e.g., `"en-US"`. Defaults to `"en-US"`
-
-Model selection is controlled by `PERPLEXITY_REASON_MODEL` only.
 
 ## Response Format
 
