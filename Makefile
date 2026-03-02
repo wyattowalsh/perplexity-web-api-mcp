@@ -8,7 +8,7 @@ test-unit:
 test-e2e:
 	@cargo test -p perplexity-web-api --test integration -- --ignored --test-threads=1
 
-test: test-unit test-integration
+test: test-unit test-e2e
 
 publish:
 	@perl -i \
