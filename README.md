@@ -100,6 +100,25 @@ For manual setup, all these clients use the same `mcpServers` format:
 }
 ```
 
+### Zed
+
+Add following following to `context_servers` in your [settings file](https://zed.dev/docs/configuring-zed.html#settings-files):
+
+```json
+{
+  "context_servers": {
+    "perplexity": {
+      "command": "npx",
+      "args": ["-y", "perplexity-web-api-mcp"],
+      "env": {
+        "PERPLEXITY_SESSION_TOKEN": "your-session-token",
+        "PERPLEXITY_CSRF_TOKEN": "your-csrf-token"
+      }
+    }
+  }
+}
+```
+
 ### VS Code
 
 I recommend using the one-click install badge at the top of this README for VS Code, or for manual setup, add to `.vscode/mcp.json`:
