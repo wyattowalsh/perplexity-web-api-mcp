@@ -2,10 +2,7 @@
 
 mod server;
 
-use perplexity_web_api::{
-    AuthCookies, CSRF_TOKEN_COOKIE_NAME, Client, ReasonModel, SESSION_TOKEN_COOKIE_NAME,
-    SearchModel,
-};
+use perplexity_web_api::{AuthCookies, Client, ReasonModel, SearchModel};
 use rmcp::{ServiceExt, transport::stdio};
 use std::{env, env::VarError};
 use tracing_subscriber::{EnvFilter, fmt};
@@ -39,18 +36,18 @@ async fn shutdown_signal() {
     }
 }
 
-/// Reads a required environment variable or returns a descriptive error.
-fn require_env(name: &str) -> Result<String, std::io::Error> {
-    env::var(name).map_err(|_| {
-        std::io::Error::other(format!(
-            "Required environment variable {name} is not set.\n\n\
-             Usage:\n\
-               PERPLEXITY_SESSION_TOKEN=<token> PERPLEXITY_CSRF_TOKEN=<token> perplexity-web-api-mcp\n\n\
-             Required environment variables:\n\
-               PERPLEXITY_SESSION_TOKEN  - Perplexity session token ({SESSION_TOKEN_COOKIE_NAME} cookie)\n\
-               PERPLEXITY_CSRF_TOKEN     - Perplexity CSRF token ({CSRF_TOKEN_COOKIE_NAME} cookie)"
-        ))
-    })
+/// Reads an optional string environment variable, returning `None` if not present.
+fn optional_env(name: &str) -> Result<Option<String>, std::io::Error> {
+    match env::var(name) {
+        Ok(value) => {
+            let trimmed = value.trim().to_owned();
+            if trimmed.is_empty() { Ok(None) } else { Ok(Some(trimmed)) }
+        }
+        Err(VarError::NotPresent) => Ok(None),
+        Err(VarError::NotUnicode(_)) => Err(std::io::Error::other(format!(
+            "Environment variable {name} must be valid UTF-8"
+        ))),
+    }
 }
 
 /// Reads an optional default model from environment.
@@ -88,26 +85,60 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_ansi(false)
         .init();
 
-    // Read required environment variables
-    let session_token = require_env("PERPLEXITY_SESSION_TOKEN")?;
-    let csrf_token = require_env("PERPLEXITY_CSRF_TOKEN")?;
-    let default_search_model = optional_model_env::<SearchModel>("PERPLEXITY_SEARCH_MODEL")?;
-    let default_reason_model = optional_model_env::<ReasonModel>("PERPLEXITY_REASON_MODEL")?;
+    let session_token = optional_env("PERPLEXITY_SESSION_TOKEN")?;
+    let csrf_token = optional_env("PERPLEXITY_CSRF_TOKEN")?;
+    let tokenless = session_token.is_none() || csrf_token.is_none();
 
-    tracing::info!("Starting Perplexity MCP server");
+    let (default_search_model, default_reason_model) = if tokenless {
+        // In tokenless mode, model overrides are not supported.
+        if env::var("PERPLEXITY_SEARCH_MODEL").is_ok() {
+            return Err(std::io::Error::other(
+                "PERPLEXITY_SEARCH_MODEL cannot be used without authentication tokens.\n\n\
+                 To use model configuration, provide both:\n\
+                   PERPLEXITY_SESSION_TOKEN  - Perplexity session token\n\
+                   PERPLEXITY_CSRF_TOKEN     - Perplexity CSRF token",
+            )
+            .into());
+        }
+        if env::var("PERPLEXITY_REASON_MODEL").is_ok() {
+            return Err(std::io::Error::other(
+                "PERPLEXITY_REASON_MODEL cannot be used without authentication tokens.\n\n\
+                 To use model configuration, provide both:\n\
+                   PERPLEXITY_SESSION_TOKEN  - Perplexity session token\n\
+                   PERPLEXITY_CSRF_TOKEN     - Perplexity CSRF token",
+            )
+            .into());
+        }
+        (Some(SearchModel::Turbo), None)
+    } else {
+        let search = optional_model_env::<SearchModel>("PERPLEXITY_SEARCH_MODEL")?;
+        let reason = optional_model_env::<ReasonModel>("PERPLEXITY_REASON_MODEL")?;
+        (search, reason)
+    };
 
-    let cookies = AuthCookies::new(session_token, csrf_token);
+    if tokenless {
+        tracing::info!(
+            "Starting Perplexity MCP server in tokenless mode (only perplexity_search with \
+             turbo model is available)"
+        );
+    } else {
+        tracing::info!("Starting Perplexity MCP server");
+    }
 
-    // Build the Perplexity client with authentication
-    let client = Client::builder().cookies(cookies).build().await.map_err(|e| {
+    let mut builder = Client::builder();
+    if let (Some(session), Some(csrf)) = (session_token, csrf_token) {
+        builder = builder.cookies(AuthCookies::new(session, csrf));
+    }
+
+    let client = builder.build().await.map_err(|e| {
         eprintln!("Failed to create Perplexity client: {}", e);
         e
     })?;
 
     tracing::info!("Perplexity client initialized");
 
-    // Create and start the MCP server
-    let server = PerplexityServer::new(client, default_search_model, default_reason_model);
+    let server =
+        PerplexityServer::new(client, default_search_model, default_reason_model, tokenless);
 
     let service = server.serve(stdio()).await.inspect_err(|e| {
         tracing::error!("Server error: {:?}", e);

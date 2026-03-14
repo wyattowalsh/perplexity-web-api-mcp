@@ -24,6 +24,17 @@ Perplexity offers a separate [paid API](https://docs.perplexity.ai/guides/pricin
 
 Simply extract the session tokens from your browser cookies, and you're ready to use Perplexity search, research, and reasoning in your IDE.
 
+## Tokenless Mode
+
+The server can run **without any authentication tokens**. In this mode:
+
+- Only `perplexity_search` is available — `perplexity_research` and `perplexity_reason` require tokens.
+- The search model is fixed to `turbo`; `PERPLEXITY_SEARCH_MODEL` and `PERPLEXITY_REASON_MODEL` cannot be set (the server will throw an error if they are).
+
+To use tokenless mode, simply omit `PERPLEXITY_SESSION_TOKEN` and `PERPLEXITY_CSRF_TOKEN` from your configuration.
+
+For full access to all tools and model selection, provide both tokens as described in the [Configuration](#configuration) section below.
+
 ## Requirements
 
 ### Supported Platforms
@@ -47,9 +58,9 @@ This server requires a Perplexity AI account. You need to extract two authentica
 
 ### Environment Variables
 
-- `PERPLEXITY_SESSION_TOKEN` (required): Perplexity session token (`next-auth.session-token` cookie)
-- `PERPLEXITY_CSRF_TOKEN` (required): Perplexity CSRF token (`next-auth.csrf-token` cookie)
-- `PERPLEXITY_SEARCH_MODEL` (optional): Model for `perplexity_search`.
+- `PERPLEXITY_SESSION_TOKEN` (optional): Perplexity session token (`next-auth.session-token` cookie). Required for `perplexity_research` and `perplexity_reason`.
+- `PERPLEXITY_CSRF_TOKEN` (optional): Perplexity CSRF token (`next-auth.csrf-token` cookie). Required for `perplexity_research` and `perplexity_reason`.
+- `PERPLEXITY_SEARCH_MODEL` (optional, requires tokens): Model for `perplexity_search`.
   Valid values:
     - `turbo` (default)
     - `sonar`
@@ -57,7 +68,7 @@ This server requires a Perplexity AI account. You need to extract two authentica
     - `gpt-5.2`
     - `claude-4.6-sonnet`
     - `grok-4.1`
-- `PERPLEXITY_REASON_MODEL` (optional): Model for `perplexity_reason`.
+- `PERPLEXITY_REASON_MODEL` (optional, requires tokens): Model for `perplexity_reason`.
   Valid values:
     - `sonar-reasoning` (default)
     - `gemini-3-flash-thinking`

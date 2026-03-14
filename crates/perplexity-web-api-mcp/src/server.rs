@@ -55,6 +55,7 @@ pub struct PerplexityServer {
     client: Client,
     search_model: Option<SearchModel>,
     reason_model: Option<ReasonModel>,
+    tokenless: bool,
     tool_router: ToolRouter<Self>,
 }
 
@@ -68,12 +69,22 @@ fn response_to_tool_result(response: PerplexityResponse) -> Result<CallToolResul
 
 impl PerplexityServer {
     /// Creates a new server instance with the given Perplexity client.
+    ///
+    /// When `tokenless` is `true`, only `perplexity_search` (with the `turbo` model) is
+    /// registered. The `perplexity_research` and `perplexity_reason` tools require
+    /// authenticated session cookies and are removed from the router.
     pub fn new(
         client: Client,
         search_model: Option<SearchModel>,
         reason_model: Option<ReasonModel>,
+        tokenless: bool,
     ) -> Self {
-        Self { client, search_model, reason_model, tool_router: Self::tool_router() }
+        let mut tool_router = Self::tool_router();
+        if tokenless {
+            tool_router.remove_route("perplexity_research");
+            tool_router.remove_route("perplexity_reason");
+        }
+        Self { client, search_model, reason_model, tokenless, tool_router }
     }
 
     /// Helper to execute a search with the given mode.
@@ -163,6 +174,13 @@ impl PerplexityServer {
         &self,
         Parameters(params): Parameters<PerplexityRequest>,
     ) -> Result<CallToolResult, McpError> {
+        if self.tokenless {
+            return Err(McpError::invalid_request(
+                "perplexity_research requires authentication tokens \
+                 (PERPLEXITY_SESSION_TOKEN and PERPLEXITY_CSRF_TOKEN)",
+                None,
+            ));
+        }
         response_to_tool_result(self.do_search(params, SearchMode::DeepResearch, None).await?)
     }
 
@@ -178,6 +196,13 @@ impl PerplexityServer {
         &self,
         Parameters(params): Parameters<PerplexityRequest>,
     ) -> Result<CallToolResult, McpError> {
+        if self.tokenless {
+            return Err(McpError::invalid_request(
+                "perplexity_reason requires authentication tokens \
+                 (PERPLEXITY_SESSION_TOKEN and PERPLEXITY_CSRF_TOKEN)",
+                None,
+            ));
+        }
         response_to_tool_result(
             self.do_search(
                 params,
@@ -192,13 +217,18 @@ impl PerplexityServer {
 #[tool_handler]
 impl ServerHandler for PerplexityServer {
     fn get_info(&self) -> ServerInfo {
+        let instructions = if self.tokenless {
+            "Perplexity AI MCP server running in tokenless mode. \
+             Only perplexity_search is available, using the turbo model. \
+             To unlock perplexity_research and perplexity_reason, \
+             provide PERPLEXITY_SESSION_TOKEN and PERPLEXITY_CSRF_TOKEN."
+        } else {
+            "Perplexity AI MCP server providing web search, deep research, and reasoning tools. \
+             Use perplexity_search for quick queries, perplexity_research for comprehensive analysis, \
+             and perplexity_reason for logical problem-solving."
+        };
         ServerInfo {
-            instructions: Some(
-                "Perplexity AI MCP server providing web search, deep research, and reasoning tools. \
-                 Use perplexity_search for quick queries, perplexity_research for comprehensive analysis, \
-                 and perplexity_reason for logical problem-solving."
-                    .into(),
-            ),
+            instructions: Some(instructions.into()),
             capabilities: ServerCapabilities::builder().enable_tools().build(),
             ..Default::default()
         }
