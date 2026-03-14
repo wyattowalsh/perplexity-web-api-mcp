@@ -1,2 +1,4 @@
 /target
 /.build-tools
+.cursor
+.DS_Store
