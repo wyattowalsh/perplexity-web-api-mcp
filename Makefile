@@ -1,6 +1,6 @@
 VERSION := 0.7.0
 
-.PHONY: publish test-unit test-e2e test
+.PHONY: publish test-unit test-e2e test inspect
 
 test-unit:
 	@cargo test --workspace --lib
@@ -28,3 +28,7 @@ publish:
 	@git tag -a "v${VERSION}" -m "release v${VERSION}"
 	@git push
 	@git push --tags
+
+inspect:
+	npx @modelcontextprotocol/inspector \
+	    cargo run
