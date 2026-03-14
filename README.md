@@ -62,8 +62,7 @@ This server requires a Perplexity AI account. You need to extract two authentica
 - `PERPLEXITY_CSRF_TOKEN` (optional): Perplexity CSRF token (`next-auth.csrf-token` cookie). Required for `perplexity_research` and `perplexity_reason`.
 - `PERPLEXITY_SEARCH_MODEL` (optional, requires tokens): Model for `perplexity_search`.
   Valid values:
-    - `turbo` (default)
-    - `sonar`
+    - `turbo` (default for tokenless)
     - `gemini-3-flash`
     - `gpt-5.2`
     - `claude-4.6-sonnet`
@@ -164,7 +163,7 @@ Most clients can be manually configured to use the `mcpServers` wrapper in their
 
 ### `perplexity_search`
 
-Quick web search using non-reasoning models. By default uses Perplexity's turbo model (`turbo`), but can be configured via `PERPLEXITY_SEARCH_MODEL`.
+Quick web search using non-reasoning models. By default uses best model (Pro auto mode) when authentication tokens are provided, or `turbo` in tokenless mode. Can be configured via `PERPLEXITY_SEARCH_MODEL`.
 
 **Best for:** Quick questions, everyday searches, and conversational queries that benefit from web context.
 

@@ -111,9 +111,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         (Some(SearchModel::Turbo), None)
     } else {
-        let search = optional_model_env::<SearchModel>("PERPLEXITY_SEARCH_MODEL")?;
+        let search = optional_model_env::<SearchModel>("PERPLEXITY_SEARCH_MODEL")?
+            .unwrap_or(SearchModel::ProAuto);
         let reason = optional_model_env::<ReasonModel>("PERPLEXITY_REASON_MODEL")?;
-        (search, reason)
+        (Some(search), reason)
     };
 
     if tokenless {

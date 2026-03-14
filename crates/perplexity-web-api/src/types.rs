@@ -25,7 +25,7 @@ impl SearchMode {
     pub const fn default_preference(&self) -> &'static str {
         match self {
             Self::Auto => SearchModel::Turbo.api_preference().as_str(),
-            Self::Pro => SearchModel::SonarPro.api_preference().as_str(),
+            Self::Pro => SearchModel::ProAuto.api_preference().as_str(),
             Self::Reasoning => ReasonModel::SonarReasoning.api_preference().as_str(),
             Self::DeepResearch => DEEP_RESEARCH_MODEL_PREFERENCE,
         }

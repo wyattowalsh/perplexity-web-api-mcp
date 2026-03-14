@@ -95,10 +95,10 @@ define_model_enum! {
     pub enum SearchModel {
         /// Default (auto) free model
         Turbo => { name: "turbo", preference: "turbo" },
+        /// Pro auto (best) model.
+        ProAuto => { name: "pro-auto", preference: "pplx_pro" },
         /// Sonar model.
         Sonar => { name: "sonar", preference: "experimental" },
-        /// Sonar pro model.
-        SonarPro => { name: "sonar-pro", preference: "pplx_pro" },
         /// Gemini 3.0 Flash model.
         Gemini30Flash => { name: "gemini-3-flash", preference: "gemini30flash" },
         /// GPT-5.2 model.
