@@ -28,8 +28,8 @@ Simply extract the session tokens from your browser cookies, and you're ready to
 
 The server can run **without any authentication tokens**. In this mode:
 
-- Only `perplexity_search` is available — `perplexity_research` and `perplexity_reason` require tokens.
-- The search model is fixed to `turbo`; `PERPLEXITY_SEARCH_MODEL` and `PERPLEXITY_REASON_MODEL` cannot be set (the server will throw an error if they are).
+- Only `perplexity_search` (links only) and `perplexity_ask` (answer with sources) are available — `perplexity_research` and `perplexity_reason` require tokens.
+- Both tools use the `turbo` model; `PERPLEXITY_ASK_MODEL` and `PERPLEXITY_REASON_MODEL` cannot be set (the server will throw an error if they are).
 
 To use tokenless mode, simply omit `PERPLEXITY_SESSION_TOKEN` and `PERPLEXITY_CSRF_TOKEN` from your configuration.
 
@@ -60,7 +60,7 @@ This server requires a Perplexity AI account. You need to extract two authentica
 
 - `PERPLEXITY_SESSION_TOKEN` (optional): Perplexity session token (`next-auth.session-token` cookie). Required for `perplexity_research` and `perplexity_reason`.
 - `PERPLEXITY_CSRF_TOKEN` (optional): Perplexity CSRF token (`next-auth.csrf-token` cookie). Required for `perplexity_research` and `perplexity_reason`.
-- `PERPLEXITY_SEARCH_MODEL` (optional, requires tokens): Model for `perplexity_search`.
+- `PERPLEXITY_ASK_MODEL` (optional, requires tokens): Model for `perplexity_ask`.
   Valid values:
     - `turbo` (default for tokenless)
     - `pro-auto` (default for authenticated)
@@ -160,15 +160,23 @@ Most clients can be manually configured to use the `mcpServers` wrapper in their
 
 ### `perplexity_search`
 
-Quick web search using non-reasoning models. By default uses best model (Pro auto mode) when authentication tokens are provided, or `turbo` in tokenless mode. Can be configured via `PERPLEXITY_SEARCH_MODEL`.
+Quick web search using the `turbo` model. Returns only links, titles, and snippets — no generated answer.
 
-**Best for:** Quick questions, everyday searches, and conversational queries that benefit from web context.
+**Best for:** Finding relevant URLs and sources quickly.
 
 **Parameters:**
 
 - `query` (required): The search query or question
 - `sources` (optional): Array of sources - `"web"`, `"scholar"`, `"social"`. Defaults to `["web"]`
 - `language` (optional): Language code, e.g., `"en-US"`. Defaults to `"en-US"`
+
+### `perplexity_ask`
+
+Ask Perplexity AI a question and get a comprehensive answer with source citations. By default uses the best model (Pro auto mode) when authentication tokens are provided, or `turbo` in tokenless mode. Can be configured via `PERPLEXITY_ASK_MODEL`.
+
+**Best for:** Getting detailed answers to questions with web context.
+
+**Parameters:** Same as `perplexity_search`.
 
 ### `perplexity_reason`
 
@@ -188,7 +196,21 @@ Deep, comprehensive research using Perplexity's sonar-deep-research (`pplx_alpha
 
 ## Response Format
 
-All tools return a JSON response with:
+`perplexity_search` returns only web results:
+
+```json
+{
+  "web_results": [
+    {
+      "name": "Source name",
+      "url": "https://example.com",
+      "snippet": "Source snippet"
+    }
+  ]
+}
+```
+
+`perplexity_ask`, `perplexity_research`, and `perplexity_reason` return a full response:
 
 ```json
 {

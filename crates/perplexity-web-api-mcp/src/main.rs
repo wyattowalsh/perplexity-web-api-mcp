@@ -89,11 +89,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let csrf_token = optional_env("PERPLEXITY_CSRF_TOKEN")?;
     let tokenless = session_token.is_none() || csrf_token.is_none();
 
-    let (default_search_model, default_reason_model) = if tokenless {
+    let (default_ask_model, default_reason_model) = if tokenless {
         // In tokenless mode, model overrides are not supported.
-        if env::var("PERPLEXITY_SEARCH_MODEL").is_ok() {
+        if env::var("PERPLEXITY_ASK_MODEL").is_ok() {
             return Err(std::io::Error::other(
-                "PERPLEXITY_SEARCH_MODEL cannot be used without authentication tokens.\n\n\
+                "PERPLEXITY_ASK_MODEL cannot be used without authentication tokens.\n\n\
                  To use model configuration, provide both:\n\
                    PERPLEXITY_SESSION_TOKEN  - Perplexity session token\n\
                    PERPLEXITY_CSRF_TOKEN     - Perplexity CSRF token",
@@ -111,16 +111,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         (Some(SearchModel::Turbo), None)
     } else {
-        let search = optional_model_env::<SearchModel>("PERPLEXITY_SEARCH_MODEL")?
+        let ask = optional_model_env::<SearchModel>("PERPLEXITY_ASK_MODEL")?
             .unwrap_or(SearchModel::ProAuto);
         let reason = optional_model_env::<ReasonModel>("PERPLEXITY_REASON_MODEL")?;
-        (Some(search), reason)
+        (Some(ask), reason)
     };
 
     if tokenless {
         tracing::info!(
-            "Starting Perplexity MCP server in tokenless mode (only perplexity_search with \
-             turbo model is available)"
+            "Starting Perplexity MCP server in tokenless mode (only perplexity_search and \
+             perplexity_ask with turbo model are available)"
         );
     } else {
         tracing::info!("Starting Perplexity MCP server");
@@ -139,7 +139,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Perplexity client initialized");
 
     let server =
-        PerplexityServer::new(client, default_search_model, default_reason_model, tokenless);
+        PerplexityServer::new(client, default_ask_model, default_reason_model, tokenless);
 
     let service = server.serve(stdio()).await.inspect_err(|e| {
         tracing::error!("Server error: {:?}", e);
