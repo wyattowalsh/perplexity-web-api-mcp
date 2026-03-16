@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 /// Cookie name for the Perplexity session token.
 pub const SESSION_TOKEN_COOKIE_NAME: &str = "next-auth.session-token";
 /// Cookie name for the Perplexity CSRF token.
@@ -33,14 +31,5 @@ impl AuthCookies {
             (SESSION_TOKEN_COOKIE_NAME, self.session_token()),
             (CSRF_TOKEN_COOKIE_NAME, self.csrf_token()),
         ]
-    }
-}
-
-impl From<AuthCookies> for HashMap<String, String> {
-    fn from(value: AuthCookies) -> Self {
-        HashMap::from([
-            (SESSION_TOKEN_COOKIE_NAME.to_string(), value.session_token),
-            (CSRF_TOKEN_COOKIE_NAME.to_string(), value.csrf_token),
-        ])
     }
 }
