@@ -22,7 +22,7 @@ async fn main() -> perplexity_web_api::Result<()> {
 
     let client = Client::builder().cookies(cookies).build().await?;
 
-    println!("Making pro mode query with GPT-5.2...\n");
+    println!("Making pro mode query with GPT-5.4...\n");
 
     let response = client
         .search(
