@@ -59,6 +59,9 @@ pub enum Error {
     /// Stream ended unexpectedly.
     #[error("Stream ended unexpectedly")]
     UnexpectedEndOfStream,
+
+    #[error("Invalid API base url")]
+    InvalidBaseUrl,
 }
 
 /// Convenience Result type for this crate.

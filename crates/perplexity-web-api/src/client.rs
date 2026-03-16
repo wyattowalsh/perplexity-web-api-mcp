@@ -69,7 +69,7 @@ impl ClientBuilder {
             Some(client) => client,
             None => {
                 let jar = Arc::new(Jar::default());
-                let url = API_BASE_URL.parse().expect("Invalid API base URL");
+                let url = API_BASE_URL.parse().map_err(|_| Error::InvalidBaseUrl)?;
 
                 if let Some(auth_cookies) = &cookies {
                     for (name, value) in auth_cookies.as_pairs() {
