@@ -182,7 +182,9 @@ impl Client {
 
         let mode_str = match request.mode {
             SearchMode::Auto => API_MODE_CONCISE,
-            _ => API_MODE_COPILOT,
+            SearchMode::Pro | SearchMode::Reasoning | SearchMode::DeepResearch => {
+                API_MODE_COPILOT
+            }
         };
 
         let model_pref = request
