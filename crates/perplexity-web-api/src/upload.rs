@@ -1,7 +1,7 @@
 use crate::config::{API_BASE_URL, API_VERSION, ENDPOINT_UPLOAD_URL};
 use crate::error::{Error, Result};
 use crate::types::{S3UploadResponse, UploadFile, UploadUrlRequest, UploadUrlResponse};
-use regex::Regex;
+use regex_lite::Regex;
 use rquest::Client as HttpClient;
 use std::sync::LazyLock;
 use std::time::Duration;
