@@ -225,13 +225,6 @@ impl PerplexityServer {
         &self,
         Parameters(params): Parameters<PerplexityRequest>,
     ) -> Result<CallToolResult, McpError> {
-        if self.tokenless {
-            return Err(McpError::invalid_request(
-                "perplexity_research requires authentication tokens \
-                 (PERPLEXITY_SESSION_TOKEN and PERPLEXITY_CSRF_TOKEN)",
-                None,
-            ));
-        }
         to_json_tool_result(&self.do_search(params, SearchMode::DeepResearch, None).await?)
     }
 
@@ -258,13 +251,6 @@ impl PerplexityServer {
         &self,
         Parameters(params): Parameters<PerplexityRequest>,
     ) -> Result<CallToolResult, McpError> {
-        if self.tokenless {
-            return Err(McpError::invalid_request(
-                "perplexity_reason requires authentication tokens \
-                 (PERPLEXITY_SESSION_TOKEN and PERPLEXITY_CSRF_TOKEN)",
-                None,
-            ));
-        }
         to_json_tool_result(
             &self
                 .do_search(
