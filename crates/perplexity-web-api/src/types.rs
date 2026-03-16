@@ -205,7 +205,7 @@ pub struct FollowUpContext {
 }
 
 /// A single event from the SSE stream.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SearchEvent {
     /// The extracted answer text, if available.
     #[serde(default)]

@@ -1,100 +1,91 @@
 use crate::error::{Error, Result};
 use crate::types::{SearchEvent, SearchWebResult};
+use serde::Deserialize;
 use serde_json::{Map, Value};
+
+/// A step in the Perplexity response "text" array.
+#[derive(Deserialize)]
+struct TextStep {
+    step_type: String,
+    #[serde(default)]
+    content: StepContent,
+}
+
+/// Content of a single response step.
+#[derive(Deserialize, Default)]
+struct StepContent {
+    /// For FINAL steps, a JSON-encoded string containing the answer and web_results.
+    answer: Option<String>,
+}
+
+/// The decoded payload of a FINAL step's "answer" JSON string.
+#[derive(Deserialize)]
+struct FinalAnswerData {
+    answer: Option<String>,
+    #[serde(default)]
+    web_results: Vec<SearchWebResult>,
+}
 
 /// Parses an SSE event JSON string into a SearchEvent.
 pub(crate) fn parse_sse_event(json_str: &str) -> Result<SearchEvent> {
     let mut content: Map<String, Value> =
         serde_json::from_str(json_str).map_err(Error::Json)?;
 
-    // Try to parse the "text" field if it contains nested JSON
-    parse_nested_text_field(&mut content);
+    // If the "text" field is a JSON string, expand it in-place so the full
+    // parsed structure is available in `raw`.
+    expand_text_field(&mut content);
 
-    // Extract answer and web_results from the FINAL step or fall back to top-level
     let (answer, web_results) = extract_answer_and_web_results(&content);
-
-    // Extract other known fields
     let backend_uuid = extract_string(&content, "backend_uuid");
     let attachments = extract_string_array(&content, "attachments");
-
-    // Preserve the full parsed JSON (after text-field expansion) as the raw value
     let raw = Value::Object(content);
 
     Ok(SearchEvent { answer, web_results, backend_uuid, attachments, raw })
 }
 
-/// If the "text" field is a JSON string, parse it and replace the field with the parsed value.
-fn parse_nested_text_field(content: &mut Map<String, Value>) {
-    let Some(text_value) = content.get("text") else {
-        return;
+/// If the "text" field is a JSON string, replace it with the parsed value.
+fn expand_text_field(content: &mut Map<String, Value>) {
+    let parsed = match content.get("text").and_then(|v| v.as_str()) {
+        Some(s) => serde_json::from_str::<Value>(s).ok(),
+        None => None,
     };
-
-    let Some(text_str) = text_value.as_str() else {
-        return;
-    };
-
-    if let Ok(parsed) = serde_json::from_str::<Value>(text_str) {
-        content.insert("text".to_string(), parsed);
+    if let Some(v) = parsed {
+        content.insert("text".to_string(), v);
     }
 }
 
 /// Extracts answer and web_results from the event content.
 ///
-/// First tries to find them in a FINAL step within the "text" field,
-/// then falls back to top-level "answer" field with empty web_results.
+/// Tries the FINAL step inside the "text" steps array first, then falls back
+/// to the top-level "answer" field (which carries no web_results).
 fn extract_answer_and_web_results(
     content: &Map<String, Value>,
 ) -> (Option<String>, Vec<SearchWebResult>) {
-    // Try to extract from FINAL step in text field
-    if let Some((answer, web_results)) = extract_from_final_step(content) {
-        return (answer, web_results);
+    if let Some(result) = extract_from_final_step(content) {
+        return result;
     }
-
-    // Fall back to top-level answer field (no web_results available at top level)
-    let answer = extract_string(content, "answer");
-
-    (answer, Vec::new())
+    (extract_string(content, "answer"), Vec::new())
 }
 
-/// Extracts answer and web_results from a FINAL step in the text field.
+/// Deserializes the "text" steps array and pulls answer + web_results from the
+/// FINAL step. Returns `None` when no FINAL step exists or parsing fails.
 fn extract_from_final_step(
     content: &Map<String, Value>,
 ) -> Option<(Option<String>, Vec<SearchWebResult>)> {
-    let text = content.get("text")?;
-    let steps = text.as_array()?;
+    let text_value = content.get("text")?;
 
-    let final_step = steps
-        .iter()
-        .find(|step| step.get("step_type").and_then(|v| v.as_str()) == Some("FINAL"))?;
+    let steps: Vec<TextStep> = serde_json::from_value(text_value.clone()).ok()?;
 
-    let step_content = final_step.get("content")?;
-    let answer_str = step_content.get("answer")?.as_str()?;
+    let final_step = steps.into_iter().find(|s| s.step_type == "FINAL")?;
+    let answer_json = final_step.content.answer?;
 
-    let answer_data: Value = serde_json::from_str(answer_str).ok()?;
-
-    let answer = answer_data.get("answer").and_then(|v| v.as_str()).map(|s| s.to_string());
-    let web_results = answer_data
-        .get("web_results")
-        .and_then(|v| v.as_array())
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|v| extract_web_result(&v))
-        .collect();
-
-    Some((answer, web_results))
-}
-
-fn extract_web_result(value: &Value) -> Option<SearchWebResult> {
-    let name = value.get("name").and_then(|v| v.as_str()).map(|s| s.to_string())?;
-    let url = value.get("url").and_then(|v| v.as_str()).map(|s| s.to_string())?;
-    let snippet = value.get("snippet").and_then(|v| v.as_str()).map(|s| s.to_string())?;
-    Some(SearchWebResult { name, url, snippet })
+    let data: FinalAnswerData = serde_json::from_str(&answer_json).ok()?;
+    Some((data.answer, data.web_results))
 }
 
 /// Extracts a string value from the content map.
 fn extract_string(content: &Map<String, Value>, key: &str) -> Option<String> {
-    content.get(key).and_then(|v| v.as_str()).map(|s| s.to_string())
+    content.get(key).and_then(|v| v.as_str()).map(str::to_owned)
 }
 
 /// Extracts an array of strings from the content map.
@@ -102,7 +93,7 @@ fn extract_string_array(content: &Map<String, Value>, key: &str) -> Vec<String> 
     content
         .get(key)
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect())
         .unwrap_or_default()
 }
 
