@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.10.0](https://github.com/mishamyrt/perplexity-web-api-mcp/compare/v0.9.0..v0.10.0) - 2026-03-29
+
+### 🚀 Features
+
+- Add batch file upload api
+- Add file upload support
+
 ## [0.9.0](https://github.com/mishamyrt/perplexity-web-api-mcp/compare/v0.8.0..v0.9.0) - 2026-03-17
 
 ### 🚀 Features
