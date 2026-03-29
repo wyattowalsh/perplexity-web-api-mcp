@@ -1,6 +1,7 @@
+use base64::Engine as _;
 use perplexity_web_api::{
     Client, ModelPreference, ReasonModel, SearchMode, SearchModel, SearchRequest,
-    SearchWebResult, Source,
+    SearchWebResult, Source, UploadFile,
 };
 use rmcp::{
     ErrorData as McpError, ServerHandler,
@@ -10,7 +11,41 @@ use rmcp::{
 };
 use serde::{Deserialize, Serialize};
 
-/// Request parameters shared by all Perplexity tools.
+/// A file to attach to the query for document analysis.
+/// Requires authentication tokens. Provide either `text` or `data`, not both.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct FileAttachment {
+    /// Filename with extension, e.g. "report.pdf" or "notes.txt".
+    pub filename: String,
+
+    /// Plain-text file content. Use for text files (.txt, .md, .csv, .json, source code).
+    /// Mutually exclusive with `data`.
+    #[serde(default)]
+    pub text: Option<String>,
+
+    /// Base64-encoded binary file content. Use for binary files (.pdf, .docx, images).
+    /// Mutually exclusive with `text`.
+    #[serde(default)]
+    pub data: Option<String>,
+}
+
+/// Request parameters for `perplexity_search` (no file attachments).
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PerplexitySearchRequest {
+    /// The search query or question to ask.
+    pub query: String,
+
+    /// Information sources to search. Valid values: "web", "scholar", "social".
+    /// Defaults to ["web"] if not specified.
+    #[serde(default)]
+    pub sources: Option<Vec<String>>,
+
+    /// Language code (ISO 639), e.g., "en-US". Defaults to "en-US".
+    #[serde(default)]
+    pub language: Option<String>,
+}
+
+/// Request parameters for AI-powered tools that support file attachments.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PerplexityRequest {
     /// The search query or question to ask.
@@ -24,6 +59,18 @@ pub struct PerplexityRequest {
     /// Language code (ISO 639), e.g., "en-US". Defaults to "en-US".
     #[serde(default)]
     pub language: Option<String>,
+
+    /// Optional file attachments for document analysis.
+    /// Requires authentication tokens (PERPLEXITY_SESSION_TOKEN + PERPLEXITY_CSRF_TOKEN).
+    /// Each entry needs `filename` and either `text` (plain text) or `data` (base64 binary).
+    #[serde(default)]
+    pub files: Option<Vec<FileAttachment>>,
+}
+
+impl From<PerplexitySearchRequest> for PerplexityRequest {
+    fn from(r: PerplexitySearchRequest) -> Self {
+        Self { query: r.query, sources: r.sources, language: r.language, files: None }
+    }
 }
 
 /// Response from Perplexity tools.
@@ -94,24 +141,96 @@ impl PerplexityServer {
         Self { client, ask_model, reason_model, tokenless, tool_router }
     }
 
+    /// Converts a `FileAttachment` from tool parameters into an `UploadFile`.
+    fn convert_attachment(attachment: FileAttachment) -> Result<UploadFile, McpError> {
+        match (attachment.text, attachment.data) {
+            (Some(text), None) => Ok(UploadFile::from_text(attachment.filename, text)),
+            (None, Some(b64)) => {
+                let bytes =
+                    base64::engine::general_purpose::STANDARD.decode(&b64).map_err(|e| {
+                        McpError::invalid_params(
+                            format!(
+                                "Failed to decode base64 data for '{}': {}",
+                                attachment.filename, e
+                            ),
+                            None,
+                        )
+                    })?;
+                Ok(UploadFile::from_bytes(attachment.filename, bytes))
+            }
+            (Some(_), Some(_)) => Err(McpError::invalid_params(
+                format!(
+                    "File '{}' has both `text` and `data` set; provide only one.",
+                    attachment.filename
+                ),
+                None,
+            )),
+            (None, None) => Err(McpError::invalid_params(
+                format!(
+                    "File '{}' has neither `text` nor `data` set; provide one.",
+                    attachment.filename
+                ),
+                None,
+            )),
+        }
+    }
+
     /// Helper to execute a search with the given mode.
+    ///
+    /// When `files_allowed` is `false`, the method rejects any request that
+    /// contains file attachments with a clear error before doing anything else.
     async fn do_search(
         &self,
         params: PerplexityRequest,
         mode: SearchMode,
         model_preference: Option<ModelPreference>,
+        files_allowed: bool,
     ) -> Result<PerplexityResponse, McpError> {
-        let effective_mode = if mode == SearchMode::Auto && model_preference.is_some() {
-            SearchMode::Pro
+        let files: Vec<UploadFile> = if let Some(attachments) = params.files {
+            if !attachments.is_empty() {
+                if !files_allowed {
+                    return Err(McpError::invalid_params(
+                        "This tool does not support file attachments. \
+                         Use perplexity_ask, perplexity_research, or perplexity_reason instead.",
+                        None,
+                    ));
+                }
+                if self.tokenless {
+                    return Err(McpError::invalid_params(
+                        "File attachments require authentication tokens. \
+                         Set PERPLEXITY_SESSION_TOKEN and PERPLEXITY_CSRF_TOKEN.",
+                        None,
+                    ));
+                }
+                attachments
+                    .into_iter()
+                    .map(Self::convert_attachment)
+                    .collect::<Result<Vec<_>, _>>()?
+            } else {
+                Vec::new()
+            }
         } else {
-            mode
+            Vec::new()
         };
+
+        let has_files = !files.is_empty();
+
+        let effective_mode =
+            if mode == SearchMode::Auto && (model_preference.is_some() || has_files) {
+                SearchMode::Pro
+            } else {
+                mode
+            };
 
         let mut request =
             SearchRequest::new(&params.query).mode(effective_mode).incognito(true);
 
         if let Some(model_preference) = model_preference {
             request = request.model(model_preference);
+        }
+
+        for file in files {
+            request = request.file(file);
         }
 
         if let Some(sources) = params.sources
@@ -167,9 +286,9 @@ impl PerplexityServer {
     )]
     pub async fn perplexity_search(
         &self,
-        Parameters(params): Parameters<PerplexityRequest>,
+        Parameters(params): Parameters<PerplexitySearchRequest>,
     ) -> Result<CallToolResult, McpError> {
-        let response = self.do_search(params, SearchMode::Auto, None).await?;
+        let response = self.do_search(params.into(), SearchMode::Auto, None, false).await?;
         to_json_tool_result(&SearchOnlyResponse { web_results: response.web_results })
     }
 
@@ -182,7 +301,8 @@ impl PerplexityServer {
                 Best for: quick factual questions, summaries, explanations, and general Q&A. \
                 Returns a text response with formatted results (title, URL, snippet). \
                 For in-depth multi-source research, use perplexity_research instead. \
-                For step-by-step reasoning and analysis, use perplexity_reason instead.",
+                For step-by-step reasoning and analysis, use perplexity_reason instead. \
+                Supports optional file attachments via the `files` parameter (requires authentication token).",
         annotations(
             title = "Ask Perplexity",
             read_only_hint = true,
@@ -196,7 +316,12 @@ impl PerplexityServer {
         Parameters(params): Parameters<PerplexityRequest>,
     ) -> Result<CallToolResult, McpError> {
         let response = self
-            .do_search(params, SearchMode::Auto, self.ask_model.map(ModelPreference::from))
+            .do_search(
+                params,
+                SearchMode::Auto,
+                self.ask_model.map(ModelPreference::from),
+                true,
+            )
             .await?;
         to_json_tool_result(&response)
     }
@@ -212,7 +337,8 @@ impl PerplexityServer {
                 many sources. Returns a detailed response with numbered citations. \
                 Significantly slower than other tools (60+ seconds). \
                 For quick factual questions, use perplexity_ask instead. \
-                For logical analysis and reasoning, use perplexity_reason instead.",
+                For logical analysis and reasoning, use perplexity_reason instead. \
+                Supports optional file attachments via the `files` parameter (requires authentication token).",
         annotations(
             title = "Deep Research",
             read_only_hint = true,
@@ -225,7 +351,9 @@ impl PerplexityServer {
         &self,
         Parameters(params): Parameters<PerplexityRequest>,
     ) -> Result<CallToolResult, McpError> {
-        to_json_tool_result(&self.do_search(params, SearchMode::DeepResearch, None).await?)
+        to_json_tool_result(
+            &self.do_search(params, SearchMode::DeepResearch, None, true).await?,
+        )
     }
 
     /// Advanced reasoning and problem-solving using Perplexity's sonar-reasoning-pro model.
@@ -238,7 +366,8 @@ impl PerplexityServer {
                 Best for: math, logic, comparisons, complex arguments, and tasks requiring chain-of-thought. \
                 Returns a reasoned response with numbered citations. \
                 For quick factual questions, use perplexity_ask instead. \
-                For comprehensive multi-source research, use perplexity_research instead.",
+                For comprehensive multi-source research, use perplexity_research instead. \
+                Supports optional file attachments via the `files` parameter (requires authentication token).",
         annotations(
             title = "Advanced Reasoning",
             read_only_hint = true,
@@ -257,6 +386,7 @@ impl PerplexityServer {
                     params,
                     SearchMode::Reasoning,
                     self.reason_model.map(ModelPreference::from),
+                    true,
                 )
                 .await?,
         )
@@ -275,7 +405,10 @@ impl ServerHandler for PerplexityServer {
         if !self.tokenless {
             instructions.push_str(
                 " Use perplexity_research for in-depth multi-source investigation (slow, 60s+). \
-                Use perplexity_reason for complex analysis requiring step-by-step logic.",
+                Use perplexity_reason for complex analysis requiring step-by-step logic. \
+                All tools support an optional `files` parameter for document analysis: \
+                pass an array of objects each with `filename` and either `text` (plain-text content) \
+                or `data` (base64-encoded binary content, e.g. for PDFs).",
             );
         }
 

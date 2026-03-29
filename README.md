@@ -30,6 +30,7 @@ The server can run **without any authentication tokens**. In this mode:
 
 - Only `perplexity_search` (links only) and `perplexity_ask` (answer with sources) are available — `perplexity_research` and `perplexity_reason` require tokens.
 - Both tools use the `turbo` model; `PERPLEXITY_ASK_MODEL` and `PERPLEXITY_REASON_MODEL` cannot be set (the server will throw an error if they are).
+- File attachments (`files` parameter) are unavailable — they require tokens.
 
 To use tokenless mode, simply omit `PERPLEXITY_SESSION_TOKEN` and `PERPLEXITY_CSRF_TOKEN` from your configuration.
 
@@ -58,8 +59,8 @@ This server requires a Perplexity AI account. You need to extract two authentica
 
 ### Environment Variables
 
-- `PERPLEXITY_SESSION_TOKEN` (optional): Perplexity session token (`next-auth.session-token` cookie). Required for `perplexity_research` and `perplexity_reason`.
-- `PERPLEXITY_CSRF_TOKEN` (optional): Perplexity CSRF token (`next-auth.csrf-token` cookie). Required for `perplexity_research` and `perplexity_reason`.
+- `PERPLEXITY_SESSION_TOKEN` (optional): Perplexity session token (`next-auth.session-token` cookie). Required for `perplexity_research`, `perplexity_reason`, and file attachments.
+- `PERPLEXITY_CSRF_TOKEN` (optional): Perplexity CSRF token (`next-auth.csrf-token` cookie). Required for `perplexity_research`, `perplexity_reason`, and file attachments.
 - `PERPLEXITY_ASK_MODEL` (optional, requires tokens): Model for `perplexity_ask`.
   Valid values:
     - `turbo` (default for tokenless)
@@ -203,8 +204,10 @@ Quick web search using the `turbo` model. Returns only links, titles, and snippe
 **Parameters:**
 
 - `query` (required): The search query or question
-- `sources` (optional): Array of sources - `"web"`, `"scholar"`, `"social"`. Defaults to `["web"]`
+- `sources` (optional): Array of sources — `"web"`, `"scholar"`, `"social"`. Defaults to `["web"]`
 - `language` (optional): Language code, e.g., `"en-US"`. Defaults to `"en-US"`
+
+> File attachments are not supported by this tool.
 
 ### `perplexity_ask`
 
@@ -212,7 +215,9 @@ Ask Perplexity AI a question and get a comprehensive answer with source citation
 
 **Best for:** Getting detailed answers to questions with web context.
 
-**Parameters:** Same as `perplexity_search`.
+**Parameters:** Same as `perplexity_search`, plus:
+
+- `files` (optional, requires tokens): Array of file attachments for document analysis. See [File Attachments](#file-attachments).
 
 ### `perplexity_reason`
 
@@ -220,7 +225,7 @@ Advanced reasoning and problem-solving. By default uses Perplexity's `sonar-reas
 
 **Best for:** Logical problems, complex analysis, decision-making, and tasks requiring step-by-step reasoning.
 
-**Parameters:** Same as `perplexity_search`.
+**Parameters:** Same as `perplexity_ask`.
 
 ### `perplexity_research`
 
@@ -228,7 +233,47 @@ Deep, comprehensive research using Perplexity's sonar-deep-research (`pplx_alpha
 
 **Best for:** Complex topics requiring detailed investigation, comprehensive reports, and in-depth analysis. Provides thorough analysis with citations.
 
-**Parameters:** Same as `perplexity_search`.
+**Parameters:** Same as `perplexity_ask`.
+
+## File Attachments
+
+`perplexity_ask`, `perplexity_research`, and `perplexity_reason` accept an optional `files` parameter for document analysis. **Requires authentication tokens.**
+
+Each entry in the `files` array must have:
+
+- `filename` (required): Filename with extension, e.g. `"report.pdf"` or `"notes.txt"`
+- `text` (mutually exclusive with `data`): Plain-text file content. Use for `.txt`, `.md`, `.csv`, `.json`, source code, etc.
+- `data` (mutually exclusive with `text`): Base64-encoded binary content. Use for `.pdf`, `.docx`, images, etc.
+
+**Example — plain text:**
+
+```json
+{
+  "query": "Summarise the key points",
+  "files": [
+    {
+      "filename": "notes.txt",
+      "text": "Meeting notes: Q1 revenue up 12%..."
+    }
+  ]
+}
+```
+
+**Example — binary file (PDF):**
+
+```json
+{
+  "query": "What does this contract say about termination?",
+  "files": [
+    {
+      "filename": "contract.pdf",
+      "data": "JVBERi0xLjQK..."
+    }
+  ]
+}
+```
+
+Multiple files can be passed in a single request — they are uploaded to Perplexity's storage in parallel before the query is sent.
 
 ## Response Format
 
