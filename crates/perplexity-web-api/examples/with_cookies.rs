@@ -14,7 +14,7 @@ async fn main() -> perplexity_web_api::Result<()> {
     let csrf_token = std::env::var("PERPLEXITY_CSRF_TOKEN").ok();
 
     let (Some(session_token), Some(csrf_token)) = (session_token, csrf_token) else {
-        println!("No cookies provided, exiting.");
+        println!("No tokens provided, exiting.");
         return Ok(());
     };
 

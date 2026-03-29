@@ -5,11 +5,11 @@ use crate::config::{
 };
 use crate::error::{Error, Result};
 use crate::sse::SseStream;
-use crate::types::SearchMode;
 use crate::types::{
-    AskParams, AskPayload, FollowUpContext, SearchEvent, SearchRequest, SearchResponse,
+    AskParams, AskPayload, FollowUpContext, SearchEvent, SearchMode, SearchRequest,
+    SearchResponse, UploadFile,
 };
-use crate::upload::upload_file;
+use crate::upload::upload_files;
 use futures_util::{Stream, StreamExt};
 use rquest::{Client as HttpClient, cookie::Jar};
 use rquest_util::Emulation;
@@ -169,12 +169,8 @@ impl Client {
     ) -> Result<impl Stream<Item = Result<SearchEvent>>> {
         self.validate_request(&request)?;
 
-        let mut attachments = Vec::new();
-
-        for file in &request.files {
-            let url = upload_file(&self.http, file, self.timeout).await?;
-            attachments.push(url);
-        }
+        let file_refs: Vec<&UploadFile> = request.files.iter().collect();
+        let mut attachments = upload_files(&self.http, &file_refs, self.timeout).await?;
 
         if let Some(ref follow_up) = request.follow_up {
             attachments.extend(follow_up.attachments.clone());
@@ -231,9 +227,19 @@ impl Client {
         Ok(SseStream::new(response.bytes_stream()))
     }
 
+    /// Uploads multiple files in a single batch and returns their S3 object URLs.
+    ///
+    /// All files are registered with the backend in one request, then uploaded
+    /// to S3 in parallel, and finally processed server-side.
+    /// Requires authentication cookies.
+    pub async fn upload_files(&self, files: &[&UploadFile]) -> Result<Vec<String>> {
+        if !files.is_empty() && !self.has_cookies {
+            return Err(Error::FileUploadRequiresAuth);
+        }
+        upload_files(&self.http, files, self.timeout).await
+    }
+
     fn validate_request(&self, request: &SearchRequest) -> Result<()> {
-        // Mode and sources are now validated at compile time via enums.
-        // Only runtime validation needed is for file uploads requiring auth.
         if !request.files.is_empty() && !self.has_cookies {
             return Err(Error::FileUploadRequiresAuth);
         }

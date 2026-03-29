@@ -21,7 +21,6 @@ bytes = { workspace = true }
 memchr = { workspace = true }
 futures-util = { workspace = true }
 mime_guess = { workspace = true }
-regex-lite = { workspace = true }
 thiserror = { workspace = true }
 pin-project-lite = { workspace = true }
 rquest = { workspace = true }

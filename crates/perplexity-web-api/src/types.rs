@@ -277,22 +277,33 @@ pub(crate) struct AskParams<'a> {
 }
 
 #[derive(Serialize)]
-pub(crate) struct UploadUrlRequest {
-    pub content_type: String,
-    pub file_size: usize,
+pub(crate) struct BatchUploadFileInfo {
     pub filename: String,
-    pub force_image: bool,
+    pub content_type: String,
     pub source: String,
+    pub file_size: usize,
+    pub force_image: bool,
+    pub skip_parsing: bool,
+    pub persistent_upload: bool,
 }
 
+/// Per-file results from the batch upload URL endpoint.
 #[derive(Deserialize)]
-pub(crate) struct UploadUrlResponse {
+pub(crate) struct BatchUploadFileResults {
     pub fields: HashMap<String, String>,
     pub s3_bucket_url: String,
     pub s3_object_url: String,
+    pub file_uuid: String,
 }
 
+/// Per-file response from the batch upload URL endpoint.
 #[derive(Deserialize)]
-pub(crate) struct S3UploadResponse {
-    pub secure_url: Option<String>,
+pub(crate) struct BatchUploadFileResponse {
+    /// Results for each uploaded file, keyed by the file's UUID.
+    pub results: HashMap<String, BatchUploadFileResults>,
+}
+
+pub(crate) struct BatchUploadFileMeta {
+    pub s3_object_url: String,
+    pub uuid: String,
 }

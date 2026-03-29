@@ -40,9 +40,13 @@ pub enum Error {
     #[error("S3 upload failed: {0}")]
     S3UploadFailed(#[source] rquest::Error),
 
-    /// Missing secure_url in S3 response.
-    #[error("Missing secure_url in S3 response")]
-    MissingSecureUrl,
+    /// Batch upload response did not contain the expected file entry.
+    #[error("Missing file entry in batch upload response")]
+    MissingUploadResponse,
+
+    /// Attachment processing SSE subscription or streaming failed.
+    #[error("Attachment processing failed: {0}")]
+    AttachmentProcessing(#[source] rquest::Error),
 
     /// Invalid MIME type.
     #[error("Invalid MIME type: {0}")]
