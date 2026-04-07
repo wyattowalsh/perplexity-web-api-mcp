@@ -110,6 +110,7 @@ pub struct PerplexityServer {
     ask_model: Option<SearchModel>,
     reason_model: Option<ReasonModel>,
     tokenless: bool,
+    incognito: bool,
     tool_router: ToolRouter<Self>,
 }
 
@@ -132,13 +133,14 @@ impl PerplexityServer {
         ask_model: Option<SearchModel>,
         reason_model: Option<ReasonModel>,
         tokenless: bool,
+        incognito: bool,
     ) -> Self {
         let mut tool_router = Self::tool_router();
         if tokenless {
             tool_router.remove_route("perplexity_research");
             tool_router.remove_route("perplexity_reason");
         }
-        Self { client, ask_model, reason_model, tokenless, tool_router }
+        Self { client, ask_model, reason_model, tokenless, incognito, tool_router }
     }
 
     /// Converts a `FileAttachment` from tool parameters into an `UploadFile`.
@@ -223,7 +225,7 @@ impl PerplexityServer {
             };
 
         let mut request =
-            SearchRequest::new(&params.query).mode(effective_mode).incognito(true);
+            SearchRequest::new(&params.query).mode(effective_mode).incognito(self.incognito);
 
         if let Some(model_preference) = model_preference {
             request = request.model(model_preference);

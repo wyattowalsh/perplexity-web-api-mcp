@@ -79,6 +79,23 @@ where
     }
 }
 
+/// Reads an optional boolean environment variable, returning `default` if not present.
+fn optional_bool_env(name: &str, default: bool) -> Result<bool, std::io::Error> {
+    optional_env(name)?.as_deref().map_or(Ok(default), |value| parse_bool_env(name, value))
+}
+
+fn parse_bool_env(name: &str, value: &str) -> Result<bool, std::io::Error> {
+    if value.eq_ignore_ascii_case("true") {
+        Ok(true)
+    } else if value.eq_ignore_ascii_case("false") {
+        Ok(false)
+    } else {
+        Err(std::io::Error::other(format!(
+            "Invalid environment variable {name}: expected true/false"
+        )))
+    }
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize tracing (logs to stderr to not interfere with stdio transport)
@@ -91,6 +108,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let session_token = optional_env("PERPLEXITY_SESSION_TOKEN")?;
     let csrf_token = optional_env("PERPLEXITY_CSRF_TOKEN")?;
     let tokenless = session_token.is_none() || csrf_token.is_none();
+    let incognito = optional_bool_env("PERPLEXITY_INCOGNITO", true)?;
 
     let (default_ask_model, default_reason_model) = if tokenless {
         // In tokenless mode, model overrides are not supported.
@@ -128,6 +146,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         tracing::info!("Starting Perplexity MCP server");
     }
+    tracing::info!(
+        "Perplexity request incognito mode is {}",
+        if incognito { "enabled" } else { "disabled" }
+    );
 
     let mut builder = Client::builder();
     if let (Some(session), Some(csrf)) = (session_token, csrf_token) {
@@ -141,8 +163,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tracing::info!("Perplexity client initialized");
 
-    let server =
-        PerplexityServer::new(client, default_ask_model, default_reason_model, tokenless);
+    let server = PerplexityServer::new(
+        client,
+        default_ask_model,
+        default_reason_model,
+        tokenless,
+        incognito,
+    );
 
     let transport = optional_env("MCP_TRANSPORT")?.unwrap_or_else(|| "stdio".to_owned());
 
@@ -200,4 +227,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_bool_env;
+
+    #[test]
+    fn parses_truthy_values() {
+        for value in ["true", "TRUE"] {
+            assert!(parse_bool_env("TEST_BOOL", value).unwrap());
+        }
+    }
+
+    #[test]
+    fn parses_falsy_values() {
+        for value in ["false", "FALSE"] {
+            assert!(!parse_bool_env("TEST_BOOL", value).unwrap());
+        }
+    }
+
+    #[test]
+    fn uses_default_when_value_is_missing() {
+        assert!(optional_bool_env_value(None, true).unwrap());
+        assert!(!optional_bool_env_value(None, false).unwrap());
+    }
+
+    #[test]
+    fn rejects_invalid_values() {
+        let error = parse_bool_env("TEST_BOOL", "maybe").unwrap_err();
+        assert!(error.to_string().contains("TEST_BOOL"));
+    }
+
+    fn optional_bool_env_value(
+        value: Option<&str>,
+        default: bool,
+    ) -> Result<bool, std::io::Error> {
+        value.map_or(Ok(default), |value| parse_bool_env("TEST_BOOL", value))
+    }
 }

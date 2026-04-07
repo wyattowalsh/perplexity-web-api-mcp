@@ -74,6 +74,8 @@ This server requires a Perplexity AI account. You need to extract two authentica
     - `gemini-3.1-pro` (default)
     - `gpt-5.4-thinking`
     - `claude-4.6-sonnet-thinking`
+- `PERPLEXITY_INCOGNITO` (optional, default: `true`): Whether requests should use Perplexity's incognito mode.
+  Valid values: `true` or `false`
 
 ### Claude Code
 
@@ -196,7 +198,7 @@ Configure your MCP client to connect:
 | `MCP_HOST` | `0.0.0.0` | Host address to bind |
 | `MCP_PORT` | `8080` | Port to listen on |
 
-The [authentication tokens and model variables](#configuration) described above work the same way in Docker.
+The [authentication tokens, model variables, and incognito flag](#configuration) described above work the same way in Docker.
 
 ## Available Tools
 
