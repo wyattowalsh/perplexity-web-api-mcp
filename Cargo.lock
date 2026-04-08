@@ -1218,7 +1218,7 @@ dependencies = [
 
 [[package]]
 name = "perplexity-web-api-mcp"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "axum",
  "base64",
