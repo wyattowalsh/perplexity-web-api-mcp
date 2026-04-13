@@ -1,5 +1,11 @@
 use perplexity_web_api::AuthCookies;
-use std::{env, env::VarError, future::Future, io, path::Path};
+use std::{
+    env,
+    env::VarError,
+    future::Future,
+    io,
+    path::{Path, PathBuf},
+};
 
 use crate::{config, setup, tty};
 
@@ -76,9 +82,12 @@ pub(crate) async fn resolve_auth() -> io::Result<ResolvedAuth> {
         }
     };
 
-    resolve_auth_with(env::var, config_path.as_deref(), tty::is_interactive(), |path| {
-        setup::run_first_run_setup(path)
-    })
+    resolve_auth_with(
+        |name| env::var(name),
+        config_path.as_deref(),
+        tty::is_interactive(),
+        |path| async move { setup::run_first_run_setup(&path).await },
+    )
     .await
 }
 
@@ -89,8 +98,8 @@ pub(crate) async fn resolve_auth_with<GetEnv, Setup, SetupFuture>(
     setup_runner: Setup,
 ) -> io::Result<ResolvedAuth>
 where
-    GetEnv: Fn(&str) -> Result<String, VarError>,
-    Setup: FnOnce(&Path) -> SetupFuture,
+    GetEnv: for<'a> Fn(&'a str) -> Result<String, VarError>,
+    Setup: FnOnce(PathBuf) -> SetupFuture,
     SetupFuture: Future<Output = io::Result<Option<AuthTokens>>>,
 {
     if let Some(tokens) = load_auth_from_env_with(&get_env)? {
@@ -105,7 +114,7 @@ where
 
     if interactive {
         if let Some(path) = config_path {
-            if let Some(tokens) = setup_runner(path).await? {
+            if let Some(tokens) = setup_runner(path.to_path_buf()).await? {
                 return Ok(ResolvedAuth::authenticated(tokens, AuthSource::InteractiveSetup));
             }
         } else {
@@ -122,13 +131,11 @@ where
     Ok(ResolvedAuth::tokenless())
 }
 
-pub(crate) fn load_auth_from_env() -> io::Result<Option<AuthTokens>> {
-    load_auth_from_env_with(env::var)
-}
-
-pub(crate) fn load_auth_from_env_with<GetEnv>(get_env: GetEnv) -> io::Result<Option<AuthTokens>>
+pub(crate) fn load_auth_from_env_with<GetEnv>(
+    get_env: GetEnv,
+) -> io::Result<Option<AuthTokens>>
 where
-    GetEnv: Fn(&str) -> Result<String, VarError>,
+    GetEnv: for<'a> Fn(&'a str) -> Result<String, VarError>,
 {
     let session_token = read_optional_env(&get_env, SESSION_TOKEN_ENV)?;
     let csrf_token = read_optional_env(&get_env, CSRF_TOKEN_ENV)?;
@@ -166,7 +173,7 @@ mod tests {
     use std::{
         collections::HashMap,
         env::VarError,
-        future, fs,
+        fs, future,
         path::{Path, PathBuf},
         sync::{
             Arc,
@@ -227,10 +234,7 @@ mod tests {
 
         let resolved = resolve_auth_with(empty_env, Some(&config_path), false, move |_| {
             prompt_called_for_closure.store(true, Ordering::SeqCst);
-            future::ready(Ok(Some(AuthTokens::try_new(
-                "session".into(),
-                "csrf".into(),
-            )?)))
+            future::ready(AuthTokens::try_new("session".into(), "csrf".into()).map(Some))
         })
         .await
         .unwrap();

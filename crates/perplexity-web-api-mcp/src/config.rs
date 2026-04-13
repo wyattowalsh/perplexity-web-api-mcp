@@ -39,11 +39,6 @@ pub(crate) fn default_config_path() -> io::Result<PathBuf> {
         .ok_or_else(|| io::Error::other("Unable to determine the user config directory"))
 }
 
-pub(crate) fn load_auth() -> io::Result<Option<AuthTokens>> {
-    let path = default_config_path()?;
-    load_auth_from_path(&path)
-}
-
 pub(crate) fn load_auth_from_path(path: &Path) -> io::Result<Option<AuthTokens>> {
     let raw = match fs::read_to_string(path) {
         Ok(raw) => raw,
@@ -76,15 +71,12 @@ pub(crate) fn load_auth_from_path(path: &Path) -> io::Result<Option<AuthTokens>>
     }
 }
 
-pub(crate) fn save_auth(auth: &AuthTokens) -> io::Result<PathBuf> {
-    let path = default_config_path()?;
-    save_auth_to_path(&path, auth)?;
-    Ok(path)
-}
-
 pub(crate) fn save_auth_to_path(path: &Path, auth: &AuthTokens) -> io::Result<()> {
     let parent = path.parent().ok_or_else(|| {
-        io::Error::other(format!("Auth config path {} has no parent directory", path.display()))
+        io::Error::other(format!(
+            "Auth config path {} has no parent directory",
+            path.display()
+        ))
     })?;
 
     fs::create_dir_all(parent)?;

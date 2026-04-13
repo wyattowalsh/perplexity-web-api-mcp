@@ -5,7 +5,9 @@ use std::{io, path::Path};
 use crate::{auth::AuthTokens, config};
 
 pub(crate) async fn run_first_run_setup(config_path: &Path) -> io::Result<Option<AuthTokens>> {
-    tracing::info!("No Perplexity authentication found in the environment or local config cache");
+    tracing::info!(
+        "No Perplexity authentication found in the environment or local config cache"
+    );
     tracing::info!(
         "Interactive first-run setup can save your session token and CSRF token locally for future runs"
     );
@@ -33,7 +35,9 @@ fn prompt_for_auth() -> io::Result<Option<AuthTokens>> {
         .with_prompt("Set up saved Perplexity authentication now?")
         .default(true)
         .interact()
-        .map_err(|err| io::Error::other(format!("Failed to read setup confirmation: {err}")))?;
+        .map_err(|err| {
+            io::Error::other(format!("Failed to read setup confirmation: {err}"))
+        })?;
 
     if !should_configure {
         return Ok(None);
