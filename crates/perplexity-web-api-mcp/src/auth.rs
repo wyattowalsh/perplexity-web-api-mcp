@@ -1,4 +1,4 @@
-use perplexity_web_api::AuthCookies;
+use perplexity_web_api::{AuthCookies, REDACTED_SECRET};
 use std::{
     env,
     env::VarError,
@@ -22,8 +22,8 @@ pub(crate) struct AuthTokens {
 impl fmt::Debug for AuthTokens {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AuthTokens")
-            .field("session_token", &"[REDACTED]")
-            .field("csrf_token", &"[REDACTED]")
+            .field("session_token", &REDACTED_SECRET)
+            .field("csrf_token", &REDACTED_SECRET)
             .finish()
     }
 }
@@ -184,19 +184,17 @@ mod tests {
         collections::HashMap,
         env::VarError,
         fs, future,
-        path::{Path, PathBuf},
         sync::{
             Arc,
             atomic::{AtomicBool, Ordering},
         },
-        time::{SystemTime, UNIX_EPOCH},
     };
 
     use super::{
         AuthSource, AuthTokens, CSRF_TOKEN_ENV, SESSION_TOKEN_ENV, load_auth_from_env_with,
         resolve_auth_with,
     };
-    use crate::config;
+    use crate::{config, test_utils::TempDir};
 
     #[tokio::test]
     async fn env_takes_precedence_over_cached_config() {
@@ -296,6 +294,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn interactive_mode_without_config_path_skips_setup_and_falls_back_to_tokenless() {
+        let prompt_called = Arc::new(AtomicBool::new(false));
+        let prompt_called_for_closure = Arc::clone(&prompt_called);
+
+        let resolved = resolve_auth_with(empty_env, None, true, move |_| {
+            prompt_called_for_closure.store(true, Ordering::SeqCst);
+            future::ready(AuthTokens::try_new("session".into(), "csrf".into()).map(Some))
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(resolved.source, AuthSource::Tokenless);
+        assert!(resolved.cookies.is_none());
+        assert!(!prompt_called.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
     async fn malformed_cached_config_falls_back_to_interactive_setup() {
         let temp_dir = TempDir::new("malformed-config");
         let config_path = temp_dir.path().join("config.json");
@@ -323,31 +338,5 @@ mod tests {
 
     fn empty_env(_: &str) -> Result<String, VarError> {
         Err(VarError::NotPresent)
-    }
-
-    struct TempDir {
-        path: PathBuf,
-    }
-
-    impl TempDir {
-        fn new(label: &str) -> Self {
-            let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-            let path = std::env::temp_dir().join(format!(
-                "perplexity-web-api-mcp-{label}-{}-{unique}",
-                std::process::id()
-            ));
-            fs::create_dir_all(&path).unwrap();
-            Self { path }
-        }
-
-        fn path(&self) -> &Path {
-            &self.path
-        }
-    }
-
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.path);
-        }
     }
 }

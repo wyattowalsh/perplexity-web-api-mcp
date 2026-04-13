@@ -4,6 +4,7 @@ use crate::config::{
     ENDPOINT_SSE_ASK,
 };
 use crate::error::{Error, Result};
+use crate::http::ensure_success_response;
 use crate::sse::SseStream;
 use crate::types::{
     AskParams, AskPayload, FollowUpContext, SearchEvent, SearchMode, SearchRequest,
@@ -14,8 +15,10 @@ use futures_util::{Stream, StreamExt};
 use rquest::{Client as HttpClient, cookie::Jar};
 use rquest_util::Emulation;
 use serde_json::Value;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use uuid::Uuid;
 
 /// Default request timeout (30 seconds).
@@ -88,13 +91,16 @@ impl ClientBuilder {
             }
         };
 
+        let warmup_started = Instant::now();
         let session_fut =
             http.get(format!("{}{}", API_BASE_URL, ENDPOINT_AUTH_SESSION)).send();
         let session_response = tokio::time::timeout(timeout, session_fut)
             .await
             .map_err(|_| Error::Timeout(timeout))?
             .map_err(Error::SessionWarmup)?;
-        validate_session_warmup(session_response, has_cookies, timeout).await?;
+        let remaining_timeout = remaining_timeout(timeout, warmup_started)?;
+        validate_session_warmup(session_response, has_cookies, timeout, remaining_timeout)
+            .await?;
 
         Ok(Client { http, has_cookies, timeout })
     }
@@ -243,7 +249,9 @@ impl Client {
         }
 
         if !self.has_cookies
-            && (request.model_preference.is_some()
+            && (request
+                .model_preference
+                .is_some_and(|preference| preference != crate::SearchModel::Turbo.into())
                 || matches!(
                     request.mode,
                     SearchMode::Pro | SearchMode::Reasoning | SearchMode::DeepResearch
@@ -260,6 +268,7 @@ async fn validate_session_warmup(
     response: rquest::Response,
     has_cookies: bool,
     timeout: Duration,
+    body_timeout: Duration,
 ) -> Result<()> {
     let response = ensure_success_response(response)?;
     if !has_cookies {
@@ -267,7 +276,7 @@ async fn validate_session_warmup(
     }
 
     let body_fut = response.bytes();
-    let body = tokio::time::timeout(timeout, body_fut)
+    let body: bytes::Bytes = tokio::time::timeout(body_timeout, body_fut)
         .await
         .map_err(|_| Error::Timeout(timeout))?
         .map_err(Error::SessionWarmup)?;
@@ -287,16 +296,8 @@ async fn validate_session_warmup(
     }
 }
 
-fn ensure_success_response(response: rquest::Response) -> Result<rquest::Response> {
-    let status = response.status();
-    if status.as_u16() == 401 || status.as_u16() == 403 {
-        return Err(Error::AuthenticationFailed);
-    }
-
-    response.error_for_status().map_err(|e| Error::Server {
-        status: e.status().map(|s| s.as_u16()).unwrap_or(0),
-        message: e.to_string(),
-    })
+fn remaining_timeout(timeout: Duration, started_at: Instant) -> Result<Duration> {
+    timeout.checked_sub(started_at.elapsed()).ok_or(Error::Timeout(timeout))
 }
 
 #[cfg(test)]
@@ -325,8 +326,15 @@ mod tests {
     }
 
     #[test]
-    fn unauthenticated_client_rejects_explicit_models() {
+    fn unauthenticated_client_allows_explicit_turbo_model() {
         let request = SearchRequest::new("test").model(SearchModel::Turbo);
+
+        build_request_validator(false, &request).unwrap();
+    }
+
+    #[test]
+    fn unauthenticated_client_rejects_non_turbo_explicit_models() {
+        let request = SearchRequest::new("test").model(SearchModel::ProAuto);
 
         let error = build_request_validator(false, &request).unwrap_err();
 

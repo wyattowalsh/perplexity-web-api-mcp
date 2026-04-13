@@ -4,6 +4,8 @@ use std::fmt;
 pub const SESSION_TOKEN_COOKIE_NAME: &str = "__Secure-next-auth.session-token";
 /// Cookie name for the Perplexity CSRF token.
 pub const CSRF_TOKEN_COOKIE_NAME: &str = "next-auth.csrf-token";
+/// Redacted placeholder used when formatting secret values for diagnostics.
+pub const REDACTED_SECRET: &str = "[REDACTED]";
 
 const LEGACY_SESSION_TOKEN_COOKIE_NAME: &str = "next-auth.session-token";
 
@@ -42,8 +44,8 @@ impl AuthCookies {
 impl fmt::Debug for AuthCookies {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AuthCookies")
-            .field("session_token", &"[REDACTED]")
-            .field("csrf_token", &"[REDACTED]")
+            .field("session_token", &REDACTED_SECRET)
+            .field("csrf_token", &REDACTED_SECRET)
             .finish()
     }
 }

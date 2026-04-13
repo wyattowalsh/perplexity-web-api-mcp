@@ -106,6 +106,13 @@ Environment variables are still the highest-priority auth source.
     - `claude-4.6-sonnet-thinking`
 - `PERPLEXITY_INCOGNITO` (optional, default: `true`): Whether requests should use Perplexity's incognito mode.
   Valid values: `true` or `false`
+- `MCP_TRANSPORT` (optional, default: `stdio`): Transport mode. Valid values are `stdio` and `streamable-http`. `streamable-http` requires building with the `streamable-http` cargo feature.
+- `MCP_HOST` (optional, default: `0.0.0.0`): Host/interface to bind when `MCP_TRANSPORT=streamable-http`.
+- `MCP_PORT` (optional, default: `8080`): TCP port to bind when `MCP_TRANSPORT=streamable-http`.
+
+When authentication cookies are provided, client startup validates them immediately by warming up `/api/auth/session`. Invalid or expired cookies fail startup instead of producing partial access later. The configured client timeout is treated as the total budget for that warm-up, including reading the session payload.
+
+In tokenless mode, empty `PERPLEXITY_ASK_MODEL` / `PERPLEXITY_REASON_MODEL` values are ignored, but any non-empty model override is rejected because tokenless mode always uses the built-in free/default behavior.
 
 ### First-Run Setup for Non-Interactive MCP Clients
 

@@ -166,15 +166,10 @@ async fn validate_auth(auth: &AuthTokens) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        cell::Cell,
-        fs, io,
-        path::{Path, PathBuf},
-        time::{SystemTime, UNIX_EPOCH},
-    };
+    use std::{cell::Cell, io};
 
     use super::{prompt_cancelled, run_first_run_setup_with};
-    use crate::{auth::AuthTokens, config};
+    use crate::{auth::AuthTokens, config, test_utils::TempDir};
 
     #[tokio::test]
     async fn setup_returns_none_when_prompt_is_skipped() {
@@ -262,31 +257,5 @@ mod tests {
         let error =
             dialoguer::Error::IO(io::Error::new(io::ErrorKind::Interrupted, "cancelled"));
         assert!(prompt_cancelled(&error));
-    }
-
-    struct TempDir {
-        path: PathBuf,
-    }
-
-    impl TempDir {
-        fn new(label: &str) -> Self {
-            let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-            let path = std::env::temp_dir().join(format!(
-                "perplexity-web-api-mcp-{label}-{}-{unique}",
-                std::process::id()
-            ));
-            fs::create_dir_all(&path).unwrap();
-            Self { path }
-        }
-
-        fn path(&self) -> &Path {
-            &self.path
-        }
-    }
-
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.path);
-        }
     }
 }

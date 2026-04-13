@@ -84,13 +84,16 @@ mod auth;
 mod client;
 mod config;
 mod error;
+mod http;
 mod models;
 mod parse;
 mod sse;
 mod types;
 mod upload;
 
-pub use auth::{AuthCookies, CSRF_TOKEN_COOKIE_NAME, SESSION_TOKEN_COOKIE_NAME};
+pub use auth::{
+    AuthCookies, CSRF_TOKEN_COOKIE_NAME, REDACTED_SECRET, SESSION_TOKEN_COOKIE_NAME,
+};
 pub use client::{Client, ClientBuilder};
 pub use error::{Error, Result};
 pub use models::{ModelPreference, ReasonModel, SearchModel};

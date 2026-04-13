@@ -4,6 +4,8 @@ mod auth;
 mod config;
 mod server;
 mod setup;
+#[cfg(test)]
+mod test_utils;
 mod tty;
 
 use perplexity_web_api::{Client, ReasonModel, SearchModel};
@@ -50,7 +52,17 @@ async fn shutdown_signal() {
 
 /// Reads an optional string environment variable, returning `None` if not present.
 fn optional_env(name: &str) -> Result<Option<String>, std::io::Error> {
-    match env::var(name) {
+    optional_env_with(|env_name| env::var(env_name), name)
+}
+
+fn optional_env_with<GetEnv>(
+    get_env: GetEnv,
+    name: &str,
+) -> Result<Option<String>, std::io::Error>
+where
+    GetEnv: for<'a> Fn(&'a str) -> Result<String, VarError>,
+{
+    match get_env(name) {
         Ok(value) => {
             let trimmed = value.trim().to_owned();
             if trimmed.is_empty() { Ok(None) } else { Ok(Some(trimmed)) }
@@ -62,28 +74,20 @@ fn optional_env(name: &str) -> Result<Option<String>, std::io::Error> {
     }
 }
 
-/// Reads an optional default model from environment.
-fn optional_model_env<T>(name: &str) -> Result<Option<T>, std::io::Error>
+fn optional_model_env_with<T, GetEnv>(
+    get_env: GetEnv,
+    name: &str,
+) -> Result<Option<T>, std::io::Error>
 where
     T: std::str::FromStr,
     T::Err: std::fmt::Display,
+    GetEnv: for<'a> Fn(&'a str) -> Result<String, VarError>,
 {
-    match env::var(name) {
-        Ok(value) => {
-            let trimmed = value.trim();
-            if trimmed.is_empty() {
-                return Ok(None);
-            }
-
-            trimmed.parse::<T>().map(Some).map_err(|e| {
-                std::io::Error::other(format!("Invalid environment variable {name}: {e}"))
-            })
-        }
-        Err(VarError::NotPresent) => Ok(None),
-        Err(VarError::NotUnicode(_)) => Err(std::io::Error::other(format!(
-            "Environment variable {name} must be valid UTF-8"
-        ))),
-    }
+    optional_env_with(get_env, name)?.as_deref().map_or(Ok(None), |value| {
+        value.parse::<T>().map(Some).map_err(|e| {
+            std::io::Error::other(format!("Invalid environment variable {name}: {e}"))
+        })
+    })
 }
 
 /// Reads an optional boolean environment variable, returning `default` if not present.
@@ -106,14 +110,24 @@ fn parse_bool_env(name: &str, value: &str) -> Result<bool, std::io::Error> {
 fn resolve_default_models(
     tokenless: bool,
 ) -> Result<(Option<SearchModel>, Option<ReasonModel>), std::io::Error> {
+    resolve_default_models_with(tokenless, |env_name| env::var(env_name))
+}
+
+fn resolve_default_models_with<GetEnv>(
+    tokenless: bool,
+    get_env: GetEnv,
+) -> Result<(Option<SearchModel>, Option<ReasonModel>), std::io::Error>
+where
+    GetEnv: for<'a> Fn(&'a str) -> Result<String, VarError>,
+{
     if tokenless {
-        if env::var("PERPLEXITY_ASK_MODEL").is_ok() {
+        if optional_env_with(&get_env, "PERPLEXITY_ASK_MODEL")?.is_some() {
             return Err(std::io::Error::other(format!(
                 "PERPLEXITY_ASK_MODEL cannot be used without authentication.\n\n{}",
                 authenticated_model_help()
             )));
         }
-        if env::var("PERPLEXITY_REASON_MODEL").is_ok() {
+        if optional_env_with(&get_env, "PERPLEXITY_REASON_MODEL")?.is_some() {
             return Err(std::io::Error::other(format!(
                 "PERPLEXITY_REASON_MODEL cannot be used without authentication.\n\n{}",
                 authenticated_model_help()
@@ -121,9 +135,10 @@ fn resolve_default_models(
         }
         Ok((None, None))
     } else {
-        let ask = optional_model_env::<SearchModel>("PERPLEXITY_ASK_MODEL")?
+        let ask = optional_model_env_with::<SearchModel, _>(&get_env, "PERPLEXITY_ASK_MODEL")?
             .unwrap_or(SearchModel::ProAuto);
-        let reason = optional_model_env::<ReasonModel>("PERPLEXITY_REASON_MODEL")?;
+        let reason =
+            optional_model_env_with::<ReasonModel, _>(&get_env, "PERPLEXITY_REASON_MODEL")?;
         Ok((Some(ask), reason))
     }
 }
@@ -254,8 +269,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_bool_env, resolve_default_models};
-    use std::env;
+    use std::{collections::HashMap, env::VarError};
+
+    use super::{parse_bool_env, resolve_default_models_with};
+    use perplexity_web_api::{ReasonModel, SearchModel};
 
     #[test]
     fn parses_truthy_values() {
@@ -285,14 +302,45 @@ mod tests {
 
     #[test]
     fn tokenless_mode_does_not_set_an_explicit_default_model() {
-        unsafe {
-            env::remove_var("PERPLEXITY_ASK_MODEL");
-            env::remove_var("PERPLEXITY_REASON_MODEL");
-        }
-
-        let (ask, reason) = resolve_default_models(true).unwrap();
+        let env = HashMap::new();
+        let (ask, reason) = resolve_default_models_with(true, env_lookup(&env)).unwrap();
         assert!(ask.is_none());
         assert!(reason.is_none());
+    }
+
+    #[test]
+    fn tokenless_mode_ignores_empty_model_env_vars() {
+        let env = HashMap::from([
+            ("PERPLEXITY_ASK_MODEL", "   ".to_owned()),
+            ("PERPLEXITY_REASON_MODEL", "".to_owned()),
+        ]);
+
+        let (ask, reason) = resolve_default_models_with(true, env_lookup(&env)).unwrap();
+
+        assert!(ask.is_none());
+        assert!(reason.is_none());
+    }
+
+    #[test]
+    fn tokenless_mode_rejects_non_empty_model_env_vars() {
+        let env = HashMap::from([("PERPLEXITY_ASK_MODEL", "turbo".to_owned())]);
+
+        let error = resolve_default_models_with(true, env_lookup(&env)).unwrap_err();
+
+        assert!(error.to_string().contains("PERPLEXITY_ASK_MODEL"));
+    }
+
+    #[test]
+    fn authenticated_mode_uses_configured_models() {
+        let env = HashMap::from([
+            ("PERPLEXITY_ASK_MODEL", "turbo".to_owned()),
+            ("PERPLEXITY_REASON_MODEL", "gpt-5.4-thinking".to_owned()),
+        ]);
+
+        let (ask, reason) = resolve_default_models_with(false, env_lookup(&env)).unwrap();
+
+        assert_eq!(ask, Some(SearchModel::Turbo));
+        assert_eq!(reason, Some(ReasonModel::Gpt54Thinking));
     }
 
     fn optional_bool_env_value(
@@ -300,5 +348,11 @@ mod tests {
         default: bool,
     ) -> Result<bool, std::io::Error> {
         value.map_or(Ok(default), |value| parse_bool_env("TEST_BOOL", value))
+    }
+
+    fn env_lookup<'a>(
+        values: &'a HashMap<&'static str, String>,
+    ) -> impl Fn(&str) -> Result<String, VarError> + 'a {
+        move |name| values.get(name).cloned().ok_or(VarError::NotPresent)
     }
 }

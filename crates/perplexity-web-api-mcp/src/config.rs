@@ -152,13 +152,13 @@ fn set_permissions(path: &Path, mode: u32) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        fs,
-        path::{Path, PathBuf},
-        time::{SystemTime, UNIX_EPOCH},
-    };
+    use std::fs;
+
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
 
     use crate::auth::AuthTokens;
+    use crate::test_utils::TempDir;
 
     use super::{load_auth_from_path, save_auth_to_path};
 
@@ -214,29 +214,19 @@ mod tests {
         assert!(lingering_temp_files.is_empty());
     }
 
-    struct TempDir {
-        path: PathBuf,
-    }
+    #[cfg(unix)]
+    #[test]
+    fn saves_auth_config_with_restrictive_permissions() {
+        let temp_dir = TempDir::new("config-permissions");
+        let config_path = temp_dir.path().join("config.json");
+        let auth = AuthTokens::try_new("session-token".into(), "csrf-token".into()).unwrap();
 
-    impl TempDir {
-        fn new(label: &str) -> Self {
-            let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-            let path = std::env::temp_dir().join(format!(
-                "perplexity-web-api-mcp-{label}-{}-{unique}",
-                std::process::id()
-            ));
-            fs::create_dir_all(&path).unwrap();
-            Self { path }
-        }
+        save_auth_to_path(&config_path, &auth).unwrap();
 
-        fn path(&self) -> &Path {
-            &self.path
-        }
-    }
+        let dir_mode = fs::metadata(temp_dir.path()).unwrap().permissions().mode() & 0o777;
+        let file_mode = fs::metadata(&config_path).unwrap().permissions().mode() & 0o777;
 
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.path);
-        }
+        assert_eq!(dir_mode, 0o700);
+        assert_eq!(file_mode, 0o600);
     }
 }

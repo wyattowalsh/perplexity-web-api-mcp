@@ -3,6 +3,7 @@ use crate::config::{
     ENDPOINT_BATCH_UPLOAD_URL,
 };
 use crate::error::{Error, Result};
+use crate::http::ensure_success_response;
 use crate::types::{
     BatchUploadFileInfo, BatchUploadFileMeta, BatchUploadFileResponse, BatchUploadFileResults,
     UploadFile,
@@ -25,18 +26,6 @@ struct BatchUploadUrlRequest {
 #[derive(Serialize)]
 struct ProcessingSubscribeRequest {
     file_uuids: Vec<String>,
-}
-
-fn ensure_success_response(response: rquest::Response) -> Result<rquest::Response> {
-    let status = response.status();
-    if status.as_u16() == 401 || status.as_u16() == 403 {
-        return Err(Error::AuthenticationFailed);
-    }
-
-    response.error_for_status().map_err(|err| Error::Server {
-        status: err.status().map(|status| status.as_u16()).unwrap_or(0),
-        message: err.to_string(),
-    })
 }
 
 /// Uploads multiple files in one batch using the presigned-POST flow:
@@ -138,7 +127,7 @@ async fn request_upload_urls(
         .map_err(Error::UploadRequest)?;
     let resp = ensure_success_response(resp)?;
 
-    resp.json().await.map_err(Error::UploadRequest)
+    resp.json::<BatchUploadFileResponse>().await.map_err(Error::UploadRequest)
 }
 
 /// Step 2: upload a single file to S3 using the presigned form fields.
@@ -210,7 +199,7 @@ async fn wait_for_processing(
     let resp = ensure_success_response(resp)?;
 
     let body_fut = resp.bytes();
-    tokio::time::timeout(timeout, body_fut)
+    let _: bytes::Bytes = tokio::time::timeout(timeout, body_fut)
         .await
         .map_err(|_| Error::Timeout(timeout))?
         .map_err(Error::AttachmentProcessing)?;

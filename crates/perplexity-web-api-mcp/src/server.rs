@@ -197,13 +197,14 @@ impl PerplexityServer {
     ///
     /// When `files_allowed` is `false`, the method rejects any request that
     /// contains file attachments with a clear error before doing anything else.
-    async fn do_search(
-        &self,
+    fn build_search_request(
         params: PerplexityRequest,
         mode: SearchMode,
         model_preference: Option<ModelPreference>,
         files_allowed: bool,
-    ) -> Result<PerplexityResponse, McpError> {
+        tokenless: bool,
+        incognito: bool,
+    ) -> Result<SearchRequest, McpError> {
         if params.query.trim().is_empty() {
             return Err(McpError::invalid_params("Query must be a non-empty string.", None));
         }
@@ -217,7 +218,7 @@ impl PerplexityServer {
                         None,
                     ));
                 }
-                if self.tokenless {
+                if tokenless {
                     return Err(McpError::invalid_params(
                         "File attachments require an authenticated Perplexity session. \
                          Provide PERPLEXITY_SESSION_TOKEN and PERPLEXITY_CSRF_TOKEN, or run the MCP binary once in an interactive terminal to complete local setup.",
@@ -246,7 +247,7 @@ impl PerplexityServer {
         };
 
         let mut request =
-            SearchRequest::new(&params.query).mode(effective_mode).incognito(self.incognito);
+            SearchRequest::new(&params.query).mode(effective_mode).incognito(incognito);
 
         if let Some(model_preference) = model_preference {
             request = request.model(model_preference);
@@ -276,6 +277,25 @@ impl PerplexityServer {
             request = request.language(language);
         }
 
+        Ok(request)
+    }
+
+    async fn do_search(
+        &self,
+        params: PerplexityRequest,
+        mode: SearchMode,
+        model_preference: Option<ModelPreference>,
+        files_allowed: bool,
+    ) -> Result<PerplexityResponse, McpError> {
+        let request = Self::build_search_request(
+            params,
+            mode,
+            model_preference,
+            files_allowed,
+            self.tokenless,
+            self.incognito,
+        )?;
+
         let response = self.client.search(request).await.map_err(|e| {
             McpError::internal_error(format!("Perplexity API error: {}", e), None)
         })?;
@@ -290,6 +310,168 @@ impl PerplexityServer {
                 attachments: follow_up.attachments,
             },
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{FileAttachment, PerplexityRequest, PerplexityServer};
+    use perplexity_web_api::{SearchMode, SearchModel};
+    use rmcp::ErrorData as McpError;
+
+    #[test]
+    fn rejects_empty_query() {
+        let error = build_request(PerplexityRequest {
+            query: "   ".into(),
+            sources: None,
+            language: None,
+            files: None,
+        })
+        .unwrap_err();
+
+        assert_invalid_params_contains(error, "Query must be a non-empty string.");
+    }
+
+    #[test]
+    fn rejects_empty_language() {
+        let error = build_request(PerplexityRequest {
+            query: "hello".into(),
+            sources: None,
+            language: Some("   ".into()),
+            files: None,
+        })
+        .unwrap_err();
+
+        assert_invalid_params_contains(error, "`language` must be a non-empty string");
+    }
+
+    #[test]
+    fn rejects_empty_sources() {
+        let error = build_request(PerplexityRequest {
+            query: "hello".into(),
+            sources: Some(Vec::new()),
+            language: None,
+            files: None,
+        })
+        .unwrap_err();
+
+        assert_invalid_params_contains(error, "`sources` must contain at least one value");
+    }
+
+    #[test]
+    fn rejects_invalid_source() {
+        let error = build_request(PerplexityRequest {
+            query: "hello".into(),
+            sources: Some(vec!["books".into()]),
+            language: None,
+            files: None,
+        })
+        .unwrap_err();
+
+        assert_invalid_params_contains(error, "Invalid source 'books'");
+    }
+
+    #[test]
+    fn rejects_attachment_with_both_text_and_data() {
+        let error = build_request(PerplexityRequest {
+            query: "hello".into(),
+            sources: None,
+            language: None,
+            files: Some(vec![FileAttachment {
+                filename: "notes.txt".into(),
+                text: Some("hello".into()),
+                data: Some("aGVsbG8=".into()),
+            }]),
+        })
+        .unwrap_err();
+
+        assert_invalid_params_contains(error, "has both `text` and `data` set");
+    }
+
+    #[test]
+    fn rejects_attachment_with_neither_text_nor_data() {
+        let error = build_request(PerplexityRequest {
+            query: "hello".into(),
+            sources: None,
+            language: None,
+            files: Some(vec![FileAttachment {
+                filename: "notes.txt".into(),
+                text: None,
+                data: None,
+            }]),
+        })
+        .unwrap_err();
+
+        assert_invalid_params_contains(error, "has neither `text` nor `data` set");
+    }
+
+    #[test]
+    fn rejects_attachment_with_empty_filename() {
+        let error = build_request(PerplexityRequest {
+            query: "hello".into(),
+            sources: None,
+            language: None,
+            files: Some(vec![FileAttachment {
+                filename: "   ".into(),
+                text: Some("hello".into()),
+                data: None,
+            }]),
+        })
+        .unwrap_err();
+
+        assert_invalid_params_contains(error, "must include a non-empty filename");
+    }
+
+    #[test]
+    fn rejects_invalid_base64_attachment() {
+        let error = build_request(PerplexityRequest {
+            query: "hello".into(),
+            sources: None,
+            language: None,
+            files: Some(vec![FileAttachment {
+                filename: "blob.bin".into(),
+                text: None,
+                data: Some("%%%".into()),
+            }]),
+        })
+        .unwrap_err();
+
+        assert_invalid_params_contains(error, "Failed to decode base64 data");
+    }
+
+    #[test]
+    fn tokenless_request_allows_explicit_turbo_model() {
+        PerplexityServer::build_search_request(
+            PerplexityRequest {
+                query: "hello".into(),
+                sources: None,
+                language: None,
+                files: None,
+            },
+            SearchMode::Auto,
+            Some(SearchModel::Turbo.into()),
+            true,
+            true,
+            true,
+        )
+        .unwrap();
+    }
+
+    fn build_request(
+        params: PerplexityRequest,
+    ) -> Result<perplexity_web_api::SearchRequest, McpError> {
+        PerplexityServer::build_search_request(
+            params,
+            SearchMode::Auto,
+            None,
+            true,
+            false,
+            true,
+        )
+    }
+
+    fn assert_invalid_params_contains(error: McpError, needle: &str) {
+        assert!(error.to_string().contains(needle), "{error}");
     }
 }
 
