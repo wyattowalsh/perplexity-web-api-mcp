@@ -71,18 +71,26 @@ perplexity-web-api-mcp/
 ├── crates/
 │   ├── perplexity-web-api/       # Core API client library
 │   │   ├── src/
+│   │   │   ├── auth.rs           # Auth cookie types, cookie-name constants, REDACTED_SECRET
 │   │   │   ├── client.rs         # HTTP client and request handling
-│   │   │   ├── config.rs         # API configuration constants
+│   │   │   ├── config.rs         # API configuration constants (base URL, timeouts)
 │   │   │   ├── error.rs          # Error types
+│   │   │   ├── http.rs           # Shared HTTP response helpers (ensure_success_response)
+│   │   │   ├── models.rs         # Model preference types and name constants
 │   │   │   ├── parse.rs          # Response parsing
 │   │   │   ├── sse.rs            # Server-Sent Events stream handling
-│   │   │   ├── types.rs          # Request/response types
+│   │   │   ├── types.rs          # Request/response types and request_requires_authentication
 │   │   │   └── upload.rs         # File upload functionality
 │   │   └── examples/             # Usage examples
 │   └── perplexity-web-api-mcp/   # MCP server binary
 │       └── src/
-│           ├── main.rs           # Entry point
-│           └── server.rs         # MCP tool implementations
+│           ├── auth.rs           # Auth resolution (env → saved config → interactive → tokenless)
+│           ├── config.rs         # Saved auth config persistence (load/save with file permissions)
+│           ├── main.rs           # Entry point and model env var resolution
+│           ├── server.rs         # MCP tool implementations
+│           ├── setup.rs          # Interactive first-run setup wizard
+│           ├── test_utils.rs     # Shared test helpers (TempDir)
+│           └── tty.rs            # TTY detection for interactive-mode guard
 ├── Cargo.toml                    # Workspace configuration
 └── AGENTS.md                     # AI agent guidelines
 ```
