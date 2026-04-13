@@ -314,6 +314,7 @@ impl PerplexityServer {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::{FileAttachment, PerplexityRequest, PerplexityServer};
     use perplexity_web_api::{SearchMode, SearchModel};
