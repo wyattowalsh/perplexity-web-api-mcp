@@ -189,6 +189,10 @@ impl PerplexityServer {
             .collect()
     }
 
+    fn requires_authenticated_model(model_preference: Option<ModelPreference>) -> bool {
+        model_preference.is_some_and(|preference| preference != SearchModel::Turbo.into())
+    }
+
     /// Helper to execute a search with the given mode.
     ///
     /// When `files_allowed` is `false`, the method rejects any request that
@@ -233,9 +237,8 @@ impl PerplexityServer {
 
         let has_files = !files.is_empty();
 
-        let needs_authenticated_mode = has_files
-            || model_preference
-                .is_some_and(|preference| preference != SearchModel::Turbo.into());
+        let needs_authenticated_mode =
+            has_files || Self::requires_authenticated_model(model_preference);
         let effective_mode = if mode == SearchMode::Auto && needs_authenticated_mode {
             SearchMode::Pro
         } else {

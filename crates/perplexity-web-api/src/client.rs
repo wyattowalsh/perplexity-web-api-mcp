@@ -273,6 +273,9 @@ async fn validate_session_warmup(
         .map_err(Error::SessionWarmup)?;
     let payload: Value = serde_json::from_slice(&body)?;
 
+    // Authenticated NextAuth session payloads are non-empty JSON objects with at
+    // least one non-null field (for example `user` or `expires`). Empty objects
+    // or `null` mean the cookies did not resolve to a logged-in session.
     match payload {
         Value::Object(fields)
             if !fields.is_empty() && fields.values().any(|value| !value.is_null()) =>
