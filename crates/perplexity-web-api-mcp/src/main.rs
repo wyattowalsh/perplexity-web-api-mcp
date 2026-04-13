@@ -1,13 +1,20 @@
 //! MCP server exposing Perplexity AI tools for search, research, and reasoning.
 
+mod auth;
+mod config;
 mod server;
+mod setup;
+mod tty;
 
-use perplexity_web_api::{AuthCookies, Client, ReasonModel, SearchModel};
+use perplexity_web_api::{Client, ReasonModel, SearchModel};
 use rmcp::{ServiceExt, transport::stdio};
 use std::{env, env::VarError};
 use tracing_subscriber::fmt;
 
-use crate::server::PerplexityServer;
+use crate::{
+    auth::{AuthSource, ResolvedAuth, resolve_auth},
+    server::PerplexityServer,
+};
 
 #[cfg(feature = "streamable-http")]
 use rmcp::transport::streamable_http_server::{
@@ -96,6 +103,57 @@ fn parse_bool_env(name: &str, value: &str) -> Result<bool, std::io::Error> {
     }
 }
 
+fn resolve_default_models(
+    tokenless: bool,
+) -> Result<(Option<SearchModel>, Option<ReasonModel>), std::io::Error> {
+    if tokenless {
+        if env::var("PERPLEXITY_ASK_MODEL").is_ok() {
+            return Err(std::io::Error::other(format!(
+                "PERPLEXITY_ASK_MODEL cannot be used without authentication.\n\n{}",
+                authenticated_model_help()
+            )));
+        }
+        if env::var("PERPLEXITY_REASON_MODEL").is_ok() {
+            return Err(std::io::Error::other(format!(
+                "PERPLEXITY_REASON_MODEL cannot be used without authentication.\n\n{}",
+                authenticated_model_help()
+            )));
+        }
+        Ok((Some(SearchModel::Turbo), None))
+    } else {
+        let ask = optional_model_env::<SearchModel>("PERPLEXITY_ASK_MODEL")?
+            .unwrap_or(SearchModel::ProAuto);
+        let reason = optional_model_env::<ReasonModel>("PERPLEXITY_REASON_MODEL")?;
+        Ok((Some(ask), reason))
+    }
+}
+
+fn authenticated_model_help() -> String {
+    format!(
+        "To use model configuration, provide both:\n  {}\n  {}\n\
+         Or run the MCP binary once in an interactive terminal to complete local auth setup.",
+        "PERPLEXITY_SESSION_TOKEN  - Perplexity session token",
+        "PERPLEXITY_CSRF_TOKEN     - Perplexity CSRF token"
+    )
+}
+
+fn log_auth_source(resolved_auth: &ResolvedAuth) {
+    match resolved_auth.source {
+        AuthSource::Environment => {
+            tracing::info!("Using Perplexity authentication from environment variables")
+        }
+        AuthSource::CachedConfig => {
+            tracing::info!("Using Perplexity authentication from cached local config")
+        }
+        AuthSource::InteractiveSetup => {
+            tracing::info!("Using Perplexity authentication from interactive first-run setup")
+        }
+        AuthSource::Tokenless => tracing::warn!(
+            "Starting Perplexity MCP server in tokenless mode (only perplexity_search and perplexity_ask with the turbo model are available)"
+        ),
+    }
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize tracing (logs to stderr to not interfere with stdio transport)
@@ -105,55 +163,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_ansi(false)
         .init();
 
-    let session_token = optional_env("PERPLEXITY_SESSION_TOKEN")?;
-    let csrf_token = optional_env("PERPLEXITY_CSRF_TOKEN")?;
-    let tokenless = session_token.is_none() || csrf_token.is_none();
+    let resolved_auth = resolve_auth().await?;
+    let tokenless = resolved_auth.tokenless_mode();
     let incognito = optional_bool_env("PERPLEXITY_INCOGNITO", true)?;
+    let (default_ask_model, default_reason_model) = resolve_default_models(tokenless)?;
 
-    let (default_ask_model, default_reason_model) = if tokenless {
-        // In tokenless mode, model overrides are not supported.
-        if env::var("PERPLEXITY_ASK_MODEL").is_ok() {
-            return Err(std::io::Error::other(
-                "PERPLEXITY_ASK_MODEL cannot be used without authentication tokens.\n\n\
-                 To use model configuration, provide both:\n\
-                   PERPLEXITY_SESSION_TOKEN  - Perplexity session token\n\
-                   PERPLEXITY_CSRF_TOKEN     - Perplexity CSRF token",
-            )
-            .into());
-        }
-        if env::var("PERPLEXITY_REASON_MODEL").is_ok() {
-            return Err(std::io::Error::other(
-                "PERPLEXITY_REASON_MODEL cannot be used without authentication tokens.\n\n\
-                 To use model configuration, provide both:\n\
-                   PERPLEXITY_SESSION_TOKEN  - Perplexity session token\n\
-                   PERPLEXITY_CSRF_TOKEN     - Perplexity CSRF token",
-            )
-            .into());
-        }
-        (Some(SearchModel::Turbo), None)
-    } else {
-        let ask = optional_model_env::<SearchModel>("PERPLEXITY_ASK_MODEL")?
-            .unwrap_or(SearchModel::ProAuto);
-        let reason = optional_model_env::<ReasonModel>("PERPLEXITY_REASON_MODEL")?;
-        (Some(ask), reason)
-    };
-
-    if tokenless {
-        tracing::info!(
-            "Starting Perplexity MCP server in tokenless mode (only perplexity_search and \
-             perplexity_ask with turbo model are available)"
-        );
-    } else {
-        tracing::info!("Starting Perplexity MCP server");
-    }
+    log_auth_source(&resolved_auth);
     tracing::info!(
         "Perplexity request incognito mode is {}",
         if incognito { "enabled" } else { "disabled" }
     );
 
     let mut builder = Client::builder();
-    if let (Some(session), Some(csrf)) = (session_token, csrf_token) {
-        builder = builder.cookies(AuthCookies::new(session, csrf));
+    if let Some(cookies) = resolved_auth.cookies {
+        builder = builder.cookies(cookies);
     }
 
     let client = builder.build().await.map_err(|e| {

@@ -12,7 +12,7 @@ use rmcp::{
 use serde::{Deserialize, Serialize};
 
 /// A file to attach to the query for document analysis.
-/// Requires authentication tokens. Provide either `text` or `data`, not both.
+/// Requires an authenticated Perplexity session. Provide either `text` or `data`, not both.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct FileAttachment {
     /// Filename with extension, e.g. "report.pdf" or "notes.txt".
@@ -61,7 +61,7 @@ pub struct PerplexityRequest {
     pub language: Option<String>,
 
     /// Optional file attachments for document analysis.
-    /// Requires authentication tokens (PERPLEXITY_SESSION_TOKEN + PERPLEXITY_CSRF_TOKEN).
+    /// Requires an authenticated Perplexity session from environment variables or saved local setup.
     /// Each entry needs `filename` and either `text` (plain text) or `data` (base64 binary).
     #[serde(default)]
     pub files: Option<Vec<FileAttachment>>,
@@ -193,8 +193,8 @@ impl PerplexityServer {
                 }
                 if self.tokenless {
                     return Err(McpError::invalid_params(
-                        "File attachments require authentication tokens. \
-                         Set PERPLEXITY_SESSION_TOKEN and PERPLEXITY_CSRF_TOKEN.",
+                        "File attachments require an authenticated Perplexity session. \
+                         Provide PERPLEXITY_SESSION_TOKEN and PERPLEXITY_CSRF_TOKEN, or run the MCP binary once in an interactive terminal to complete local setup.",
                         None,
                     ));
                 }
@@ -298,7 +298,7 @@ impl PerplexityServer {
                 Returns a text response with formatted results (title, URL, snippet). \
                 For in-depth multi-source research, use perplexity_research instead. \
                 For step-by-step reasoning and analysis, use perplexity_reason instead. \
-                Supports optional file attachments via the `files` parameter (requires authentication token).",
+                Supports optional file attachments via the `files` parameter (requires authenticated session).",
         annotations(
             title = "Ask Perplexity",
             read_only_hint = true,
@@ -334,7 +334,7 @@ impl PerplexityServer {
                 Significantly slower than other tools (60+ seconds). \
                 For quick factual questions, use perplexity_ask instead. \
                 For logical analysis and reasoning, use perplexity_reason instead. \
-                Supports optional file attachments via the `files` parameter (requires authentication token).",
+                Supports optional file attachments via the `files` parameter (requires authenticated session).",
         annotations(
             title = "Deep Research",
             read_only_hint = true,
@@ -363,7 +363,7 @@ impl PerplexityServer {
                 Returns a reasoned response with numbered citations. \
                 For quick factual questions, use perplexity_ask instead. \
                 For comprehensive multi-source research, use perplexity_research instead. \
-                Supports optional file attachments via the `files` parameter (requires authentication token).",
+                Supports optional file attachments via the `files` parameter (requires authenticated session).",
         annotations(
             title = "Advanced Reasoning",
             read_only_hint = true,

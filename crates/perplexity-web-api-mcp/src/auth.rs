@@ -1,0 +1,278 @@
+use perplexity_web_api::AuthCookies;
+use std::{env, env::VarError, future::Future, io, path::Path};
+
+use crate::{config, setup, tty};
+
+pub(crate) const SESSION_TOKEN_ENV: &str = "PERPLEXITY_SESSION_TOKEN";
+pub(crate) const CSRF_TOKEN_ENV: &str = "PERPLEXITY_CSRF_TOKEN";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AuthTokens {
+    session_token: String,
+    csrf_token: String,
+}
+
+impl AuthTokens {
+    pub(crate) fn try_new(session_token: String, csrf_token: String) -> io::Result<Self> {
+        let session_token = session_token.trim().to_owned();
+        let csrf_token = csrf_token.trim().to_owned();
+
+        if session_token.is_empty() || csrf_token.is_empty() {
+            return Err(io::Error::other(
+                "Saved Perplexity authentication must include both a non-empty session token and CSRF token",
+            ));
+        }
+
+        Ok(Self { session_token, csrf_token })
+    }
+
+    pub(crate) fn session_token(&self) -> &str {
+        &self.session_token
+    }
+
+    pub(crate) fn csrf_token(&self) -> &str {
+        &self.csrf_token
+    }
+
+    pub(crate) fn into_cookies(self) -> AuthCookies {
+        AuthCookies::new(self.session_token, self.csrf_token)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum AuthSource {
+    Environment,
+    CachedConfig,
+    InteractiveSetup,
+    Tokenless,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ResolvedAuth {
+    pub(crate) cookies: Option<AuthCookies>,
+    pub(crate) source: AuthSource,
+}
+
+impl ResolvedAuth {
+    fn authenticated(tokens: AuthTokens, source: AuthSource) -> Self {
+        Self { cookies: Some(tokens.into_cookies()), source }
+    }
+
+    fn tokenless() -> Self {
+        Self { cookies: None, source: AuthSource::Tokenless }
+    }
+
+    pub(crate) fn tokenless_mode(&self) -> bool {
+        self.cookies.is_none()
+    }
+}
+
+pub(crate) async fn resolve_auth() -> io::Result<ResolvedAuth> {
+    let config_path = match config::default_config_path() {
+        Ok(path) => Some(path),
+        Err(err) => {
+            tracing::warn!("Unable to resolve the local auth config path: {}", err);
+            None
+        }
+    };
+
+    resolve_auth_with(env::var, config_path.as_deref(), tty::is_interactive(), |path| {
+        setup::run_first_run_setup(path)
+    })
+    .await
+}
+
+pub(crate) async fn resolve_auth_with<GetEnv, Setup, SetupFuture>(
+    get_env: GetEnv,
+    config_path: Option<&Path>,
+    interactive: bool,
+    setup_runner: Setup,
+) -> io::Result<ResolvedAuth>
+where
+    GetEnv: Fn(&str) -> Result<String, VarError>,
+    Setup: FnOnce(&Path) -> SetupFuture,
+    SetupFuture: Future<Output = io::Result<Option<AuthTokens>>>,
+{
+    if let Some(tokens) = load_auth_from_env_with(&get_env)? {
+        return Ok(ResolvedAuth::authenticated(tokens, AuthSource::Environment));
+    }
+
+    if let Some(path) = config_path
+        && let Some(tokens) = config::load_auth_from_path(path)?
+    {
+        return Ok(ResolvedAuth::authenticated(tokens, AuthSource::CachedConfig));
+    }
+
+    if interactive {
+        if let Some(path) = config_path {
+            if let Some(tokens) = setup_runner(path).await? {
+                return Ok(ResolvedAuth::authenticated(tokens, AuthSource::InteractiveSetup));
+            }
+        } else {
+            tracing::warn!(
+                "Interactive first-run setup is unavailable because the local config path could not be determined"
+            );
+        }
+    } else {
+        tracing::warn!(
+            "No Perplexity authentication found and the terminal is non-interactive; starting in tokenless mode"
+        );
+    }
+
+    Ok(ResolvedAuth::tokenless())
+}
+
+pub(crate) fn load_auth_from_env() -> io::Result<Option<AuthTokens>> {
+    load_auth_from_env_with(env::var)
+}
+
+pub(crate) fn load_auth_from_env_with<GetEnv>(get_env: GetEnv) -> io::Result<Option<AuthTokens>>
+where
+    GetEnv: Fn(&str) -> Result<String, VarError>,
+{
+    let session_token = read_optional_env(&get_env, SESSION_TOKEN_ENV)?;
+    let csrf_token = read_optional_env(&get_env, CSRF_TOKEN_ENV)?;
+
+    match (session_token, csrf_token) {
+        (Some(session_token), Some(csrf_token)) => {
+            Ok(Some(AuthTokens { session_token, csrf_token }))
+        }
+        (None, None) => Ok(None),
+        _ => Err(io::Error::other(format!(
+            "Perplexity authentication environment is partially configured. \
+             Set both {SESSION_TOKEN_ENV} and {CSRF_TOKEN_ENV}, or unset both to use saved local auth or tokenless mode."
+        ))),
+    }
+}
+
+fn read_optional_env<GetEnv>(get_env: &GetEnv, name: &str) -> io::Result<Option<String>>
+where
+    GetEnv: Fn(&str) -> Result<String, VarError>,
+{
+    match get_env(name) {
+        Ok(value) => {
+            let trimmed = value.trim().to_owned();
+            if trimmed.is_empty() { Ok(None) } else { Ok(Some(trimmed)) }
+        }
+        Err(VarError::NotPresent) => Ok(None),
+        Err(VarError::NotUnicode(_)) => {
+            Err(io::Error::other(format!("Environment variable {name} must be valid UTF-8")))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        collections::HashMap,
+        env::VarError,
+        future, fs,
+        path::{Path, PathBuf},
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    use super::{
+        AuthSource, AuthTokens, CSRF_TOKEN_ENV, SESSION_TOKEN_ENV, load_auth_from_env_with,
+        resolve_auth_with,
+    };
+    use crate::config;
+
+    #[tokio::test]
+    async fn env_takes_precedence_over_cached_config() {
+        let temp_dir = TempDir::new("env-precedence");
+        let config_path = temp_dir.path().join("config.json");
+        config::save_auth_to_path(
+            &config_path,
+            &AuthTokens::try_new("cached-session".into(), "cached-csrf".into()).unwrap(),
+        )
+        .unwrap();
+
+        let env = HashMap::from([
+            (SESSION_TOKEN_ENV, "env-session".to_owned()),
+            (CSRF_TOKEN_ENV, "env-csrf".to_owned()),
+        ]);
+
+        let resolved = resolve_auth_with(env_lookup(&env), Some(&config_path), false, |_| {
+            future::ready(Ok(None))
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(resolved.source, AuthSource::Environment);
+        let cookies = resolved.cookies.unwrap();
+        assert_eq!(cookies.session_token(), "env-session");
+        assert_eq!(cookies.csrf_token(), "env-csrf");
+    }
+
+    #[test]
+    fn partial_env_configuration_is_rejected() {
+        let env = HashMap::from([(SESSION_TOKEN_ENV, "session-only".to_owned())]);
+
+        let error = load_auth_from_env_with(env_lookup(&env)).unwrap_err();
+
+        assert!(error.to_string().contains(SESSION_TOKEN_ENV));
+        assert!(error.to_string().contains(CSRF_TOKEN_ENV));
+    }
+
+    #[tokio::test]
+    async fn non_interactive_mode_skips_setup_and_falls_back_to_tokenless() {
+        let temp_dir = TempDir::new("non-interactive");
+        let config_path = temp_dir.path().join("config.json");
+        let prompt_called = Arc::new(AtomicBool::new(false));
+        let prompt_called_for_closure = Arc::clone(&prompt_called);
+
+        let resolved = resolve_auth_with(empty_env, Some(&config_path), false, move |_| {
+            prompt_called_for_closure.store(true, Ordering::SeqCst);
+            future::ready(Ok(Some(AuthTokens::try_new(
+                "session".into(),
+                "csrf".into(),
+            )?)))
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(resolved.source, AuthSource::Tokenless);
+        assert!(resolved.cookies.is_none());
+        assert!(!prompt_called.load(Ordering::SeqCst));
+    }
+
+    fn env_lookup<'a>(
+        values: &'a HashMap<&'static str, String>,
+    ) -> impl Fn(&str) -> Result<String, VarError> + 'a {
+        move |name| values.get(name).cloned().ok_or(VarError::NotPresent)
+    }
+
+    fn empty_env(_: &str) -> Result<String, VarError> {
+        Err(VarError::NotPresent)
+    }
+
+    struct TempDir {
+        path: PathBuf,
+    }
+
+    impl TempDir {
+        fn new(label: &str) -> Self {
+            let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+            let path = std::env::temp_dir().join(format!(
+                "perplexity-web-api-mcp-{label}-{}-{unique}",
+                std::process::id()
+            ));
+            fs::create_dir_all(&path).unwrap();
+            Self { path }
+        }
+
+        fn path(&self) -> &Path {
+            &self.path
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+}
