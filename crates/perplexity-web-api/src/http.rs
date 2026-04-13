@@ -7,7 +7,7 @@ pub(crate) fn ensure_success_response(response: rquest::Response) -> Result<rque
     }
 
     response.error_for_status().map_err(|err| Error::Server {
-        status: err.status().map(|status| status.as_u16()).unwrap_or(0),
+        status: err.status().map_or(500, |status| status.as_u16()),
         message: err.to_string(),
     })
 }

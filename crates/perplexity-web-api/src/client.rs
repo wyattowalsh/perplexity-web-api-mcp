@@ -249,13 +249,7 @@ impl Client {
         }
 
         if !self.has_cookies
-            && (request
-                .model_preference
-                .is_some_and(|preference| preference != crate::SearchModel::Turbo.into())
-                || matches!(
-                    request.mode,
-                    SearchMode::Pro | SearchMode::Reasoning | SearchMode::DeepResearch
-                ))
+            && crate::request_requires_authentication(request.mode, request.model_preference)
         {
             return Err(Error::AuthenticatedModeRequiresAuth);
         }
@@ -267,8 +261,8 @@ impl Client {
 async fn validate_session_warmup(
     response: rquest::Response,
     has_cookies: bool,
-    timeout: Duration,
-    body_timeout: Duration,
+    total_timeout: Duration,
+    remaining_timeout: Duration,
 ) -> Result<()> {
     let response = ensure_success_response(response)?;
     if !has_cookies {
@@ -276,9 +270,9 @@ async fn validate_session_warmup(
     }
 
     let body_fut = response.bytes();
-    let body: bytes::Bytes = tokio::time::timeout(body_timeout, body_fut)
+    let body: bytes::Bytes = tokio::time::timeout(remaining_timeout, body_fut)
         .await
-        .map_err(|_| Error::Timeout(timeout))?
+        .map_err(|_| Error::Timeout(total_timeout))?
         .map_err(Error::SessionWarmup)?;
     let payload: Value = serde_json::from_slice(&body)?;
 

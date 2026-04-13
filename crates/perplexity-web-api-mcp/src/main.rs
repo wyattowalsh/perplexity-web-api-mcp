@@ -124,13 +124,13 @@ where
         if optional_env_with(&get_env, "PERPLEXITY_ASK_MODEL")?.is_some() {
             return Err(std::io::Error::other(format!(
                 "PERPLEXITY_ASK_MODEL cannot be used without authentication.\n\n{}",
-                authenticated_model_help()
+                authentication_help()
             )));
         }
         if optional_env_with(&get_env, "PERPLEXITY_REASON_MODEL")?.is_some() {
             return Err(std::io::Error::other(format!(
                 "PERPLEXITY_REASON_MODEL cannot be used without authentication.\n\n{}",
-                authenticated_model_help()
+                authentication_help()
             )));
         }
         Ok((None, None))
@@ -143,7 +143,7 @@ where
     }
 }
 
-fn authenticated_model_help() -> String {
+fn authentication_help() -> String {
     format!(
         "To use model configuration, provide both:\n  {}\n  {}\n\
          Or run the MCP binary once in an interactive terminal to complete local auth setup.",

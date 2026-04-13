@@ -99,5 +99,5 @@ pub use error::{Error, Result};
 pub use models::{ModelPreference, ReasonModel, SearchModel};
 pub use types::{
     FollowUpContext, SearchEvent, SearchMode, SearchRequest, SearchResponse, SearchWebResult,
-    Source, UploadFile,
+    Source, UploadFile, request_requires_authentication,
 };
