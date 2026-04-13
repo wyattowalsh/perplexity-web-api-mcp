@@ -27,6 +27,18 @@ struct ProcessingSubscribeRequest {
     file_uuids: Vec<String>,
 }
 
+fn ensure_success_response(response: rquest::Response) -> Result<rquest::Response> {
+    let status = response.status();
+    if status.as_u16() == 401 || status.as_u16() == 403 {
+        return Err(Error::AuthenticationFailed);
+    }
+
+    response.error_for_status().map_err(|err| Error::Server {
+        status: err.status().map(|status| status.as_u16()).unwrap_or(0),
+        message: err.to_string(),
+    })
+}
+
 /// Uploads multiple files in one batch using the presigned-POST flow:
 /// 1. Obtain presigned S3 form fields for all files in a single request
 /// 2. Upload every file to S3 in parallel
@@ -123,9 +135,8 @@ async fn request_upload_urls(
     let resp = tokio::time::timeout(timeout, fut)
         .await
         .map_err(|_| Error::Timeout(timeout))?
-        .map_err(Error::UploadRequest)?
-        .error_for_status()
-        .map_err(Error::UploadUrlFailed)?;
+        .map_err(Error::UploadRequest)?;
+    let resp = ensure_success_response(resp)?;
 
     resp.json().await.map_err(Error::UploadRequest)
 }
@@ -157,12 +168,11 @@ async fn upload_to_s3(
 
     let fut = http.post(&results.s3_bucket_url).multipart(form).send();
 
-    tokio::time::timeout(timeout, fut)
+    let response = tokio::time::timeout(timeout, fut)
         .await
         .map_err(|_| Error::Timeout(timeout))?
-        .map_err(Error::UploadRequest)?
-        .error_for_status()
-        .map_err(Error::S3UploadFailed)?;
+        .map_err(Error::UploadRequest)?;
+    response.error_for_status().map_err(Error::S3UploadFailed)?;
 
     Ok(())
 }
@@ -196,9 +206,8 @@ async fn wait_for_processing(
     let resp = tokio::time::timeout(timeout, sse_fut)
         .await
         .map_err(|_| Error::Timeout(timeout))?
-        .map_err(Error::UploadRequest)?
-        .error_for_status()
-        .map_err(Error::AttachmentProcessing)?;
+        .map_err(Error::UploadRequest)?;
+    let resp = ensure_success_response(resp)?;
 
     let body_fut = resp.bytes();
     tokio::time::timeout(timeout, body_fut)

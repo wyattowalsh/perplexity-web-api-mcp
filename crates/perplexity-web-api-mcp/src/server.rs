@@ -139,6 +139,13 @@ impl PerplexityServer {
 
     /// Converts a `FileAttachment` from tool parameters into an `UploadFile`.
     fn convert_attachment(attachment: FileAttachment) -> Result<UploadFile, McpError> {
+        if attachment.filename.trim().is_empty() {
+            return Err(McpError::invalid_params(
+                "Each file attachment must include a non-empty filename.",
+                None,
+            ));
+        }
+
         match (attachment.text, attachment.data) {
             (Some(text), None) => Ok(UploadFile::from_text(attachment.filename, text)),
             (None, Some(b64)) => {
@@ -171,6 +178,17 @@ impl PerplexityServer {
         }
     }
 
+    fn parse_sources(sources: Vec<String>) -> Result<Vec<Source>, McpError> {
+        sources
+            .into_iter()
+            .map(|source| {
+                source.parse::<Source>().map_err(|err| {
+                    McpError::invalid_params(format!("Invalid source '{source}': {err}"), None)
+                })
+            })
+            .collect()
+    }
+
     /// Helper to execute a search with the given mode.
     ///
     /// When `files_allowed` is `false`, the method rejects any request that
@@ -182,6 +200,10 @@ impl PerplexityServer {
         model_preference: Option<ModelPreference>,
         files_allowed: bool,
     ) -> Result<PerplexityResponse, McpError> {
+        if params.query.trim().is_empty() {
+            return Err(McpError::invalid_params("Query must be a non-empty string.", None));
+        }
+
         let files: Vec<UploadFile> = if let Some(attachments) = params.files {
             if !attachments.is_empty() {
                 if !files_allowed {
@@ -211,12 +233,14 @@ impl PerplexityServer {
 
         let has_files = !files.is_empty();
 
-        let effective_mode =
-            if mode == SearchMode::Auto && (model_preference.is_some() || has_files) {
-                SearchMode::Pro
-            } else {
-                mode
-            };
+        let needs_authenticated_mode = has_files
+            || model_preference
+                .is_some_and(|preference| preference != SearchModel::Turbo.into());
+        let effective_mode = if mode == SearchMode::Auto && needs_authenticated_mode {
+            SearchMode::Pro
+        } else {
+            mode
+        };
 
         let mut request =
             SearchRequest::new(&params.query).mode(effective_mode).incognito(self.incognito);
@@ -229,17 +253,23 @@ impl PerplexityServer {
             request = request.file(file);
         }
 
-        if let Some(sources) = params.sources
-            && !sources.is_empty()
-        {
-            let parsed_sources: Vec<Source> =
-                sources.iter().filter_map(|s| s.parse::<Source>().ok()).collect();
-            if !parsed_sources.is_empty() {
-                request = request.sources(parsed_sources);
+        if let Some(sources) = params.sources {
+            if sources.is_empty() {
+                return Err(McpError::invalid_params(
+                    "If provided, `sources` must contain at least one value.",
+                    None,
+                ));
             }
+            request = request.sources(Self::parse_sources(sources)?);
         }
 
         if let Some(language) = params.language {
+            if language.trim().is_empty() {
+                return Err(McpError::invalid_params(
+                    "If provided, `language` must be a non-empty string.",
+                    None,
+                ));
+            }
             request = request.language(language);
         }
 

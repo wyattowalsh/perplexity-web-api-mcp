@@ -119,7 +119,7 @@ fn resolve_default_models(
                 authenticated_model_help()
             )));
         }
-        Ok((Some(SearchModel::Turbo), None))
+        Ok((None, None))
     } else {
         let ask = optional_model_env::<SearchModel>("PERPLEXITY_ASK_MODEL")?
             .unwrap_or(SearchModel::ProAuto);
@@ -254,7 +254,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_bool_env;
+    use super::{parse_bool_env, resolve_default_models};
+    use std::env;
 
     #[test]
     fn parses_truthy_values() {
@@ -280,6 +281,18 @@ mod tests {
     fn rejects_invalid_values() {
         let error = parse_bool_env("TEST_BOOL", "maybe").unwrap_err();
         assert!(error.to_string().contains("TEST_BOOL"));
+    }
+
+    #[test]
+    fn tokenless_mode_does_not_set_an_explicit_default_model() {
+        unsafe {
+            env::remove_var("PERPLEXITY_ASK_MODEL");
+            env::remove_var("PERPLEXITY_REASON_MODEL");
+        }
+
+        let (ask, reason) = resolve_default_models(true).unwrap();
+        assert!(ask.is_none());
+        assert!(reason.is_none());
     }
 
     fn optional_bool_env_value(

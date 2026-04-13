@@ -80,15 +80,20 @@ Saved auth is stored as JSON in your OS user config directory:
 
 Delete that file manually if you want to remove the saved auth cache.
 
+If a previously saved session expires, the server now rejects it during startup instead of silently treating it as authenticated. Remove the cached file and either:
+
+1. rerun `npx -y perplexity-web-api-mcp` in an interactive terminal to save fresh tokens, or
+2. provide fresh `PERPLEXITY_SESSION_TOKEN` and `PERPLEXITY_CSRF_TOKEN` values in your MCP client config.
+
 ### Environment Variables
 
 Environment variables are still the highest-priority auth source.
 
-- `PERPLEXITY_SESSION_TOKEN` (optional, highest priority): Perplexity session token (`next-auth.session-token` cookie). Required for `perplexity_research`, `perplexity_reason`, and file attachments when you are not using saved local auth.
+- `PERPLEXITY_SESSION_TOKEN` (optional, highest priority): Perplexity session token (`__Secure-next-auth.session-token` cookie from your browser). Required for `perplexity_research`, `perplexity_reason`, and file attachments when you are not using saved local auth.
 - `PERPLEXITY_CSRF_TOKEN` (optional, highest priority): Perplexity CSRF token (`next-auth.csrf-token` cookie). Required for `perplexity_research`, `perplexity_reason`, and file attachments when you are not using saved local auth.
 - `PERPLEXITY_ASK_MODEL` (optional, requires authenticated session access): Model for `perplexity_ask`.
   Valid values:
-    - `turbo` (default for tokenless)
+    - `turbo` (the implicit tokenless/default `perplexity_search` and `perplexity_ask` model)
     - `pro-auto` (default for authenticated)
     - `sonar`
     - `gpt-5.4`
@@ -190,6 +195,31 @@ codex mcp add perplexity --env PERPLEXITY_SESSION_TOKEN="your-session-token" --e
 ### Building from Source
 
 Source build instructions, including optional cargo features, are documented in [CONTRIBUTING.md](CONTRIBUTING.md).
+
+### Local Verification
+
+Before opening a PR or cutting a release, run:
+
+```bash
+cargo fmt --all
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo build --workspace --all-targets
+cargo test --workspace --lib
+```
+
+To validate the optional HTTP transport build:
+
+```bash
+cargo build -p perplexity-web-api-mcp --all-targets --features streamable-http
+```
+
+Live authenticated e2e coverage remains opt-in because it depends on real Perplexity session cookies:
+
+```bash
+PERPLEXITY_SESSION_TOKEN="..." \
+PERPLEXITY_CSRF_TOKEN="..." \
+cargo test -p perplexity-web-api --test integration -- --ignored --test-threads=1
+```
 
 ### Other MCP Clients
 

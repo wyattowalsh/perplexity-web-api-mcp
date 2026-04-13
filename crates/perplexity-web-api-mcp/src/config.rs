@@ -4,6 +4,7 @@ use std::{
     fs,
     io::{self, Write},
     path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 #[cfg(unix)]
@@ -20,13 +21,13 @@ use crate::auth::AuthTokens;
 const CONFIG_DIR_NAME: &str = "perplexity-web-api-mcp";
 const CONFIG_FILE_NAME: &str = "config.json";
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct AppConfig {
     #[serde(default)]
     auth: Option<StoredAuth>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct StoredAuth {
     session_token: String,
     csrf_token: String,
@@ -93,13 +94,18 @@ pub(crate) fn save_auth_to_path(path: &Path, auth: &AuthTokens) -> io::Result<()
     let json = serde_json::to_string_pretty(&payload)
         .map_err(|err| io::Error::other(format!("Failed to serialize auth config: {err}")))?;
 
-    let temp_path = path.with_extension("tmp");
+    let temp_path = temp_config_path(path);
     let mut open_options = OpenOptions::new();
-    open_options.write(true).create(true).truncate(true);
+    open_options.write(true).create_new(true);
     #[cfg(unix)]
     open_options.mode(0o600);
 
-    let mut file = open_options.open(&temp_path)?;
+    let mut file = match open_options.open(&temp_path) {
+        Ok(file) => file,
+        Err(err) => {
+            return Err(io::Error::other(format!("Failed to create temp auth config: {err}")));
+        }
+    };
     file.write_all(json.as_bytes())?;
     file.write_all(b"\n")?;
     file.sync_all()?;
@@ -107,11 +113,36 @@ pub(crate) fn save_auth_to_path(path: &Path, auth: &AuthTokens) -> io::Result<()
     #[cfg(unix)]
     set_permissions(&temp_path, 0o600)?;
 
-    fs::rename(&temp_path, path)?;
+    replace_file(&temp_path, path)?;
     #[cfg(unix)]
     set_permissions(path, 0o600)?;
 
     Ok(())
+}
+
+fn temp_config_path(path: &Path) -> PathBuf {
+    let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let filename = format!(
+        ".{}.{}.tmp",
+        path.file_name().and_then(|name| name.to_str()).unwrap_or("config"),
+        unique
+    );
+    path.with_file_name(filename)
+}
+
+fn replace_file(temp_path: &Path, final_path: &Path) -> io::Result<()> {
+    match fs::rename(temp_path, final_path) {
+        Ok(()) => Ok(()),
+        #[cfg(windows)]
+        Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {
+            fs::remove_file(final_path)?;
+            fs::rename(temp_path, final_path)
+        }
+        Err(err) => {
+            let _ = fs::remove_file(temp_path);
+            Err(err)
+        }
+    }
 }
 
 #[cfg(unix)]
@@ -152,6 +183,35 @@ mod tests {
         let loaded = load_auth_from_path(&config_path).unwrap();
 
         assert!(loaded.is_none());
+    }
+
+    #[test]
+    fn overwrites_existing_auth_config() {
+        let temp_dir = TempDir::new("config-overwrite");
+        let config_path = temp_dir.path().join("config.json");
+
+        save_auth_to_path(
+            &config_path,
+            &AuthTokens::try_new("old-session".into(), "old-csrf".into()).unwrap(),
+        )
+        .unwrap();
+        save_auth_to_path(
+            &config_path,
+            &AuthTokens::try_new("new-session".into(), "new-csrf".into()).unwrap(),
+        )
+        .unwrap();
+
+        let loaded = load_auth_from_path(&config_path).unwrap().unwrap();
+        assert_eq!(loaded.session_token(), "new-session");
+        assert_eq!(loaded.csrf_token(), "new-csrf");
+
+        let lingering_temp_files = fs::read_dir(temp_dir.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.ends_with(".tmp"))
+            .collect::<Vec<_>>();
+        assert!(lingering_temp_files.is_empty());
     }
 
     struct TempDir {

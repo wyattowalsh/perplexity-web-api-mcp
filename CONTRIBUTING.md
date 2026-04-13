@@ -23,6 +23,7 @@ cd perplexity-web-api-mcp
 
 ```bash
 cargo build --workspace --all-targets
+cargo build -p perplexity-web-api-mcp --all-targets --features streamable-http
 ```
 
 To build the optimized MCP binary directly:
@@ -60,7 +61,7 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -Clean
 ### 3. Run Tests
 
 ```bash
-cargo test --workspace
+cargo test --workspace --lib
 ```
 
 ## Project Structure
@@ -141,6 +142,20 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 # Build all targets
 cargo build --workspace --all-targets
+
+# Verify the optional Streamable HTTP transport build
+cargo build -p perplexity-web-api-mcp --all-targets --features streamable-http
+
+# Run deterministic unit coverage
+cargo test --workspace --lib
+```
+
+Authenticated e2e coverage is opt-in because it depends on live Perplexity session cookies:
+
+```bash
+PERPLEXITY_SESSION_TOKEN="..." \
+PERPLEXITY_CSRF_TOKEN="..." \
+cargo test -p perplexity-web-api --test integration -- --ignored --test-threads=1
 ```
 
 ### Commit Messages
@@ -185,6 +200,8 @@ Examples require authentication tokens. Set environment variables:
 export PERPLEXITY_SESSION_TOKEN="your-session-token"
 export PERPLEXITY_CSRF_TOKEN="your-csrf-token"
 ```
+
+`PERPLEXITY_SESSION_TOKEN` should be copied from the browser cookie named `__Secure-next-auth.session-token`.
 
 Then run:
 

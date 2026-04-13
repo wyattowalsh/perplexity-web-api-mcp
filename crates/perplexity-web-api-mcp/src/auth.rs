@@ -2,6 +2,7 @@ use perplexity_web_api::AuthCookies;
 use std::{
     env,
     env::VarError,
+    fmt,
     future::Future,
     io,
     path::{Path, PathBuf},
@@ -12,10 +13,19 @@ use crate::{config, setup, tty};
 pub(crate) const SESSION_TOKEN_ENV: &str = "PERPLEXITY_SESSION_TOKEN";
 pub(crate) const CSRF_TOKEN_ENV: &str = "PERPLEXITY_CSRF_TOKEN";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) struct AuthTokens {
     session_token: String,
     csrf_token: String,
+}
+
+impl fmt::Debug for AuthTokens {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AuthTokens")
+            .field("session_token", &"[REDACTED]")
+            .field("csrf_token", &"[REDACTED]")
+            .finish()
+    }
 }
 
 impl AuthTokens {
@@ -242,6 +252,67 @@ mod tests {
         assert_eq!(resolved.source, AuthSource::Tokenless);
         assert!(resolved.cookies.is_none());
         assert!(!prompt_called.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn cached_config_is_used_when_env_is_missing() {
+        let temp_dir = TempDir::new("cached-config");
+        let config_path = temp_dir.path().join("config.json");
+        config::save_auth_to_path(
+            &config_path,
+            &AuthTokens::try_new("cached-session".into(), "cached-csrf".into()).unwrap(),
+        )
+        .unwrap();
+
+        let resolved = resolve_auth_with(empty_env, Some(&config_path), false, |_| {
+            future::ready(Ok(None))
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(resolved.source, AuthSource::CachedConfig);
+        let cookies = resolved.cookies.unwrap();
+        assert_eq!(cookies.session_token(), "cached-session");
+        assert_eq!(cookies.csrf_token(), "cached-csrf");
+    }
+
+    #[tokio::test]
+    async fn interactive_setup_is_used_when_available() {
+        let temp_dir = TempDir::new("interactive-setup");
+        let config_path = temp_dir.path().join("config.json");
+
+        let resolved = resolve_auth_with(empty_env, Some(&config_path), true, |_| {
+            future::ready(
+                AuthTokens::try_new("prompt-session".into(), "prompt-csrf".into()).map(Some),
+            )
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(resolved.source, AuthSource::InteractiveSetup);
+        let cookies = resolved.cookies.unwrap();
+        assert_eq!(cookies.session_token(), "prompt-session");
+        assert_eq!(cookies.csrf_token(), "prompt-csrf");
+    }
+
+    #[tokio::test]
+    async fn malformed_cached_config_falls_back_to_interactive_setup() {
+        let temp_dir = TempDir::new("malformed-config");
+        let config_path = temp_dir.path().join("config.json");
+        fs::write(&config_path, "{not json").unwrap();
+
+        let resolved = resolve_auth_with(empty_env, Some(&config_path), true, |_| {
+            future::ready(
+                AuthTokens::try_new("prompt-session".into(), "prompt-csrf".into()).map(Some),
+            )
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(resolved.source, AuthSource::InteractiveSetup);
+        let cookies = resolved.cookies.unwrap();
+        assert_eq!(cookies.session_token(), "prompt-session");
+        assert_eq!(cookies.csrf_token(), "prompt-csrf");
     }
 
     fn env_lookup<'a>(

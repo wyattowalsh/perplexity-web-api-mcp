@@ -13,6 +13,7 @@ use crate::upload::upload_files;
 use futures_util::{Stream, StreamExt};
 use rquest::{Client as HttpClient, cookie::Jar};
 use rquest_util::Emulation;
+use serde_json::Value;
 use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
@@ -89,10 +90,11 @@ impl ClientBuilder {
 
         let session_fut =
             http.get(format!("{}{}", API_BASE_URL, ENDPOINT_AUTH_SESSION)).send();
-        tokio::time::timeout(timeout, session_fut)
+        let session_response = tokio::time::timeout(timeout, session_fut)
             .await
             .map_err(|_| Error::Timeout(timeout))?
             .map_err(Error::SessionWarmup)?;
+        validate_session_warmup(session_response, has_cookies, timeout).await?;
 
         Ok(Client { http, has_cookies, timeout })
     }
@@ -217,12 +219,8 @@ impl Client {
         let response = tokio::time::timeout(self.timeout, request_fut)
             .await
             .map_err(|_| Error::Timeout(self.timeout))?
-            .map_err(Error::SearchRequest)?
-            .error_for_status()
-            .map_err(|e| Error::Server {
-                status: e.status().map(|s| s.as_u16()).unwrap_or(0),
-                message: e.to_string(),
-            })?;
+            .map_err(Error::SearchRequest)?;
+        let response = ensure_success_response(response)?;
 
         Ok(SseStream::new(response.bytes_stream()))
     }
@@ -244,6 +242,113 @@ impl Client {
             return Err(Error::FileUploadRequiresAuth);
         }
 
+        if !self.has_cookies
+            && (request.model_preference.is_some()
+                || matches!(
+                    request.mode,
+                    SearchMode::Pro | SearchMode::Reasoning | SearchMode::DeepResearch
+                ))
+        {
+            return Err(Error::AuthenticatedModeRequiresAuth);
+        }
+
         Ok(())
+    }
+}
+
+async fn validate_session_warmup(
+    response: rquest::Response,
+    has_cookies: bool,
+    timeout: Duration,
+) -> Result<()> {
+    let response = ensure_success_response(response)?;
+    if !has_cookies {
+        return Ok(());
+    }
+
+    let body_fut = response.bytes();
+    let body = tokio::time::timeout(timeout, body_fut)
+        .await
+        .map_err(|_| Error::Timeout(timeout))?
+        .map_err(Error::SessionWarmup)?;
+    let payload: Value = serde_json::from_slice(&body)?;
+
+    match payload {
+        Value::Object(fields)
+            if !fields.is_empty() && fields.values().any(|value| !value.is_null()) =>
+        {
+            Ok(())
+        }
+        Value::Null | Value::Object(_) => Err(Error::AuthenticationFailed),
+        _ => Err(Error::InvalidAuthenticationResponse),
+    }
+}
+
+fn ensure_success_response(response: rquest::Response) -> Result<rquest::Response> {
+    let status = response.status();
+    if status.as_u16() == 401 || status.as_u16() == 403 {
+        return Err(Error::AuthenticationFailed);
+    }
+
+    response.error_for_status().map_err(|e| Error::Server {
+        status: e.status().map(|s| s.as_u16()).unwrap_or(0),
+        message: e.to_string(),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Client;
+    use crate::{SearchMode, SearchModel, SearchRequest, UploadFile};
+    use std::time::Duration;
+
+    #[test]
+    fn unauthenticated_client_rejects_file_uploads() {
+        let request =
+            SearchRequest::new("test").file(UploadFile::from_text("notes.txt", "contents"));
+
+        let error = build_request_validator(false, &request).unwrap_err();
+
+        assert!(matches!(error, crate::Error::FileUploadRequiresAuth));
+    }
+
+    #[test]
+    fn unauthenticated_client_rejects_premium_modes() {
+        let request = SearchRequest::new("test").mode(SearchMode::Reasoning);
+
+        let error = build_request_validator(false, &request).unwrap_err();
+
+        assert!(matches!(error, crate::Error::AuthenticatedModeRequiresAuth));
+    }
+
+    #[test]
+    fn unauthenticated_client_rejects_explicit_models() {
+        let request = SearchRequest::new("test").model(SearchModel::Turbo);
+
+        let error = build_request_validator(false, &request).unwrap_err();
+
+        assert!(matches!(error, crate::Error::AuthenticatedModeRequiresAuth));
+    }
+
+    #[test]
+    fn authenticated_client_allows_premium_modes_and_files() {
+        let request = SearchRequest::new("test")
+            .mode(SearchMode::Pro)
+            .model(SearchModel::ProAuto)
+            .file(UploadFile::from_text("notes.txt", "contents"));
+
+        build_request_validator(true, &request).unwrap();
+    }
+
+    fn build_request_validator(
+        has_cookies: bool,
+        request: &SearchRequest,
+    ) -> crate::Result<()> {
+        let client = Client {
+            http: rquest::Client::builder().build().unwrap(),
+            has_cookies,
+            timeout: Duration::from_secs(30),
+        };
+        client.validate_request(request)
     }
 }
